@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Typography */
+  --font-serif: "Instrument Serif", serif;
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Colors — Canvas */
+  --color-canvas: #FAFAFA;
+  --color-ink: #121212;
+  --color-ink-muted: #666666;
+  --color-border: #E5E5E5;
+
+  /* Colors — Accents */
+  --color-aurora: #7C3AED;        /* violet */
+  --color-solar: #FB923C;         /* orange */
+  --color-signal-critical: #DC2626;
+  --color-signal-warning: #EA580C;
+  --color-signal-info: #2563EB;
+  --color-signal-success: #059669;
+
+  /* Glassmorphism helpers */
+  --background-glass: rgba(255, 255, 255, 0.65);
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink font-sans antialiased overflow-x-hidden;
+  }
+
+  .font-serif { @apply font-serif; }
+  .font-mono { @apply font-mono; }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-[var(--background-glass)] backdrop-blur-[24px] border border-ink/8 shadow-[0_4px_30px_rgba(0,0,0,0.02)];
+  }
+
+  .grid-lines {
+    background-size: 40px 40px;
+    background-image:
+      linear-gradient(to right, #f0f0f0 1px, transparent 1px),
+      linear-gradient(to bottom, #f0f0f0 1px, transparent 1px);
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d4; }
