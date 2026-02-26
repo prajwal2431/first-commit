@@ -33,7 +33,7 @@ An **"Always-On" AI Copilot** for Indian D2C and MSME retail (₹10–100 Cr ARR
 | Day | Focus | Outcome |
 |-----|--------|---------|
 | **Day 1** | Project setup & backend skeleton | Repo structure, DB, models, health check, frontend shell |
-| **Day 2** | Data intake | Upload Excel/CSV → parse → store; data source status |
+| **Day 2** | Data intake | Upload Excel/CSV (and optional enterprise DW connection) → parse/sync → store; data source status |
 | **Day 3** | Normalization + anomaly detection | Unified schema; revenue & stockout anomalies; anomaly API |
 | **Day 4** | Agentic RCA core | Hypotheses (Bedrock) → test → root causes; audit trail |
 | **Day 5** | Actions + SSE | Actions from root causes; action API; real-time SSE |

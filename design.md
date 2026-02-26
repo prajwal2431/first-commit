@@ -46,7 +46,7 @@ The platform consists of six distinct layers, each with clear responsibilities:
                           ↕
 ┌─────────────────────────────────────────────────────────┐
 │         Layer 1: Data Intake Layer                      │
-│         (Excel, CSV, Marketplace Exports)               │
+│         (Excel, CSV, Marketplace, Enterprise DW)        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -101,18 +101,33 @@ The platform consists of six distinct layers, each with clear responsibilities:
    - Maps marketplace-specific columns to standard schema
    - Handles marketplace-specific data quirks
 
+5. **DataWarehouseConnector**
+   - Connects to enterprise-level data warehouses (Snowflake, BigQuery, Redshift, etc.)
+   - Supports connection via JDBC, ODBC, or native APIs with secure credential storage
+   - Syncs or queries tables/views that match supported data types (orders, inventory, traffic, fulfilment)
+   - Handles incremental sync and full refresh; maps warehouse schema to standard schema
+
 **Interfaces:**
 
 ```typescript
 interface DataSource {
   id: string;
   userId: string;
-  fileName: string;
-  fileType: 'excel' | 'csv' | 'marketplace';
+  fileName: string;  // For file sources: original name; for data_warehouse: logical name
+  fileType: 'excel' | 'csv' | 'marketplace' | 'data_warehouse';
   uploadedAt: Date;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   recordCount?: number;
   errorMessage?: string;
+  // For fileType === 'data_warehouse':
+  connectionConfig?: {
+    type: 'snowflake' | 'bigquery' | 'redshift' | 'generic_jdbc';
+    endpoint?: string;
+    database?: string;
+    schema?: string;
+    tablesOrViews?: string[];  // Tables/views to sync for orders, inventory, etc.
+  };
+  lastSyncAt?: Date;
 }
 
 interface ParsedData {
@@ -552,14 +567,23 @@ interface DataSource {
   id: string;
   userId: string;
   organizationId: string;
-  fileName: string;
-  fileType: 'excel' | 'csv' | 'marketplace';
+  fileName: string;  // For file sources: original name; for data_warehouse: logical name
+  fileType: 'excel' | 'csv' | 'marketplace' | 'data_warehouse';
   uploadedAt: Date;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   recordCount?: number;
   errorMessage?: string;
   columnMappings?: ColumnMapping[];
   qualityIssues?: DataQualityIssue[];
+  // For fileType === 'data_warehouse' (enterprise data warehouse):
+  connectionConfig?: {
+    type: 'snowflake' | 'bigquery' | 'redshift' | 'generic_jdbc';
+    endpoint?: string;
+    database?: string;
+    schema?: string;
+    tablesOrViews?: string[];
+  };
+  lastSyncAt?: Date;
 }
 
 // Business Data

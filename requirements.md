@@ -27,18 +27,19 @@ The Agentic Decision Intelligence Platform is an AI-powered system designed for 
 
 ### Requirement 1: Data Ingestion
 
-**User Story:** As a D2C founder, I want to upload my business data from various sources, so that the system can analyze my operations without complex integrations.
+**User Story:** As a D2C founder (or enterprise user), I want to upload my business data from various sources or connect my data warehouse, so that the system can analyze my operations without complex integrations.
 
 #### Acceptance Criteria
 
 1. WHEN a user uploads an Excel file, THE System SHALL parse and store the data
 2. WHEN a user uploads a CSV file, THE System SHALL parse and store the data
 3. WHEN a user uploads a marketplace export (Amazon/Flipkart format), THE System SHALL parse and store the data
-4. WHEN a file upload fails due to format issues, THE System SHALL return a descriptive error message
-5. THE System SHALL support orders data containing order_id, sku, quantity, revenue, date, and region fields
-6. THE System SHALL support inventory data containing sku, location, and available_qty fields
-7. WHERE traffic data is provided, THE System SHALL support sessions and impressions fields
-8. WHERE fulfilment data is provided, THE System SHALL support dispatch_time and delay_flags fields
+4. WHEN an enterprise user connects an existing data warehouse (e.g. Snowflake, BigQuery, Redshift), THE System SHALL support secure connection configuration and sync or query data from specified tables/views into the standard schema
+5. WHEN a file upload fails due to format issues, THE System SHALL return a descriptive error message
+6. THE System SHALL support orders data containing order_id, sku, quantity, revenue, date, and region fields
+7. THE System SHALL support inventory data containing sku, location, and available_qty fields
+8. WHERE traffic data is provided, THE System SHALL support sessions and impressions fields
+9. WHERE fulfilment data is provided, THE System SHALL support dispatch_time and delay_flags fields
 
 ### Requirement 2: Data Normalization and Quality
 

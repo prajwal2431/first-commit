@@ -38,7 +38,7 @@ Use this file to track progress. Check off items as you complete them.
 ### 1.3 Database & models
 - [ ] MongoDB connection (e.g. Mongoose or native driver), config from env
 - [ ] Define core schemas/models:
-  - [ ] `DataSource` (file metadata, status, userId, organizationId)
+  - [ ] `DataSource` (file metadata or warehouse connection, status, userId, organizationId; optional `connectionConfig`, `lastSyncAt` for data_warehouse)
   - [ ] `OrderRecord` (order_id, sku, quantity, revenue, date, region)
   - [ ] `InventoryRecord` (sku, location, available_qty, date)
   - [ ] `Anomaly` (kpiName, severity, status, deviationPercent, dimensions)
@@ -61,6 +61,7 @@ Use this file to track progress. Check off items as you complete them.
 
 ### 2.1 File upload API
 - [ ] `POST /api/data-sources/upload` — multipart form, accept `.xlsx`, `.csv`
+- [ ] `POST /api/data-sources/warehouse` (or equivalent) — register enterprise data warehouse connection (Snowflake, BigQuery, Redshift, etc.); store connection config securely; support sync/query
 - [ ] Validate file size (e.g. max 10MB for prototype)
 - [ ] Save file to disk or stream to parser; create `DataSource` document with status `processing`
 - [ ] Return `{ dataSourceId, status: "processing" }` and optionally poll or use webhook later
@@ -68,7 +69,7 @@ Use this file to track progress. Check off items as you complete them.
 ### 2.2 Parsers
 - [ ] **Excel:** Use `xlsx`; parse first sheet (or configurable), convert to array of objects; handle basic types (numbers, dates)
 - [ ] **CSV:** Use `csv-parse`; support comma/delimiter detection, quoted fields
-- [ ] After parse: determine data type (orders vs inventory) by column names (e.g. presence of `order_id` + `revenue` vs `sku` + `available_qty`)
+- [ ] After parse (or after warehouse sync): determine data type (orders vs inventory) by column names (e.g. presence of `order_id` + `revenue` vs `sku` + `available_qty`)
 - [ ] Map parsed rows to `OrderRecord` or `InventoryRecord`; insert in bulk into MongoDB
 - [ ] Update `DataSource` status to `completed` or `failed`; store `recordCount` and optional `errorMessage`
 

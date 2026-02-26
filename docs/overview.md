@@ -30,7 +30,7 @@ Most BI tools show *what* happened. This platform explains *why* it happened and
 ## 🏗 System Architecture (6-Layer Model)
 The platform is built on a modular 6-layer architecture to ensure clear separation of concerns:
 
-1. **Layer 1: Data Intake** - Normalizing Excel, CSV, and Marketplace exports (Amazon/Flipkart).
+1. **Layer 1: Data Intake** - Normalizing Excel, CSV, Marketplace exports (Amazon/Flipkart), and enterprise data warehouse connections (Snowflake, BigQuery, Redshift, etc.).
 2. **Layer 2: Normalization & Quality** - Schema mapping and data validation.
 3. **Layer 3: Anomaly Detection** - Monitoring KPIs like Revenue (WoW/DoD) and SKU stockouts.
 4. **Layer 4: Agentic RCA Core** - The "Brain" which generates and tests hypotheses for root causes.
