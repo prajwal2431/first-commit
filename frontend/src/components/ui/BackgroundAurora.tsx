@@ -2,7 +2,7 @@ import React from 'react';
 
 const BackgroundAurora: React.FC = () => {
     return (
-        <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden bg-canvas">
+        <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 overflow-hidden" style={{ backgroundColor: '#FAFAFA' }}>
             {/* Background Aurora */}
             <div
                 className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] opacity-40 blur-[120px]"

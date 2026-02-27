@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 export class ApiError extends Error {
     status: number;
@@ -34,5 +34,31 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
         throw new ApiError(res.status, errorData);
     }
 
+    return res.json() as Promise<T>;
+}
+
+/** Upload file to endpoint (no JSON Content-Type; FormData). */
+export async function uploadFile<T = { dataSourceId: string; status: string; recordCount?: number }>(
+    endpoint: string,
+    file: File,
+    fieldName = 'file'
+): Promise<T> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const form = new FormData();
+    form.append(fieldName, file);
+    const res = await fetch(url, {
+        method: 'POST',
+        body: form,
+        // Do not set Content-Type; browser sets multipart boundary
+    });
+    if (!res.ok) {
+        let errorData: { message?: string };
+        try {
+            errorData = await res.json();
+        } catch {
+            errorData = { message: res.statusText || 'Upload failed' };
+        }
+        throw new ApiError(res.status, errorData);
+    }
     return res.json() as Promise<T>;
 }

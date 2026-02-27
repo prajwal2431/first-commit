@@ -1,57 +1,98 @@
 import { create } from 'zustand';
 import type { DataSource } from '@/types';
+import { request, uploadFile, ApiError } from '@/services/api/client';
+
+interface BackendDataSource {
+  _id: string;
+  fileName: string;
+  fileType: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  recordCount?: number;
+  uploadedAt: string;
+  errorMessage?: string;
+}
+
+function formatLastSync(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diff = (now - d.getTime()) / 1000;
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+  return d.toLocaleDateString();
+}
+
+function mapStatus(s: BackendDataSource['status']): DataSource['status'] {
+  if (s === 'completed') return 'connected';
+  if (s === 'processing' || s === 'pending') return 'syncing';
+  if (s === 'failed') return 'error';
+  return 'disconnected';
+}
+
+function mapSource(b: BackendDataSource): DataSource {
+  return {
+    id: b._id,
+    name: b.fileName,
+    type: b.fileType,
+    status: mapStatus(b.status),
+    lastSync: formatLastSync(b.uploadedAt),
+    icon: b.fileType === 'excel' ? 'file' : b.fileType,
+  };
+}
 
 interface SourcesState {
-    sources: DataSource[];
-    isLoading: boolean;
+  sources: DataSource[];
+  isLoading: boolean;
+  uploadError: string | null;
 
-    fetchSources: () => Promise<void>;
-    connectSource: (type: string, name: string) => Promise<void>;
-    disconnectSource: (id: string) => Promise<void>;
+  fetchSources: () => Promise<void>;
+  uploadSource: (file: File) => Promise<void>;
+  clearUploadError: () => void;
+  disconnectSource: (id: string) => void;
 }
 
 export const useSourcesStore = create<SourcesState>((set, get) => ({
-    sources: [],
-    isLoading: false,
+  sources: [],
+  isLoading: false,
+  uploadError: null,
 
-    fetchSources: async () => {
-        set({ isLoading: true });
-        // Mock API
-        setTimeout(() => {
-            set({
-                sources: [
-                    { id: 'src-1', name: 'Shopify India', type: 'ecommerce', status: 'connected', lastSync: '2 mins ago', icon: 'shopify' },
-                    { id: 'src-2', name: 'Unicommerce WMS', type: 'wms', status: 'connected', lastSync: '5 mins ago', icon: 'warehouse' },
-                    { id: 'src-3', name: 'Meta Ads', type: 'marketing', status: 'connected', lastSync: '10 mins ago', icon: 'meta' }
-                ],
-                isLoading: false
-            });
-        }, 800);
-    },
-
-    connectSource: async (type, name) => {
-        // Mock connection
-        const newSource: DataSource = {
-            id: `src-${Date.now()}`,
-            name,
-            type,
-            status: 'syncing',
-            lastSync: 'Just now',
-            icon: type
-        };
-
-        set({ sources: [...get().sources, newSource] });
-
-        setTimeout(() => {
-            set((state) => ({
-                sources: state.sources.map(s => s.id === newSource.id ? { ...s, status: 'connected' } : s)
-            }));
-        }, 2000);
-    },
-
-    disconnectSource: async (id) => {
-        set((state) => ({
-            sources: state.sources.map(s => s.id === id ? { ...s, status: 'disconnected' } : s)
-        }));
+  fetchSources: async () => {
+    set({ isLoading: true });
+    try {
+      const list = (await request<BackendDataSource[]>('/data-sources')) ?? [];
+      set({
+        sources: list.map(mapSource),
+        isLoading: false,
+      });
+    } catch (err) {
+      set({ isLoading: false });
+      console.error('Failed to fetch sources', err);
+      set({ sources: [] });
     }
+  },
+
+  uploadSource: async (file: File) => {
+    set({ uploadError: null });
+    try {
+      await uploadFile<{ dataSourceId: string; status: string; recordCount?: number }>(
+        '/data-sources/upload',
+        file,
+        'file'
+      );
+      await get().fetchSources();
+    } catch (err) {
+      const message = err instanceof ApiError && err.data?.message
+        ? err.data.message
+        : err instanceof Error ? err.message : 'Upload failed';
+      set({ uploadError: message });
+      throw err;
+    }
+  },
+
+  clearUploadError: () => set({ uploadError: null }),
+
+  disconnectSource: () => {
+    // Optional: call DELETE /api/data-sources/:id when backend supports it
+    set((state) => ({ sources: state.sources }));
+  },
 }));

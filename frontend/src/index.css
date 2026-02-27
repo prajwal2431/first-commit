@@ -26,10 +26,17 @@
 }
 
 @layer base {
+  html, body {
+    margin: 0;
+    min-height: 100vh;
+  }
   body {
     @apply bg-canvas text-ink font-sans antialiased overflow-x-hidden;
+    background-color: #FAFAFA;
   }
-
+  #root {
+    min-height: 100vh;
+  }
   .font-serif { @apply font-serif; }
   .font-mono { @apply font-mono; }
 }

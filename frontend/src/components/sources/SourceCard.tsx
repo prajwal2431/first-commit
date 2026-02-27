@@ -12,6 +12,7 @@ const SourceCard: React.FC<SourceCardProps> = ({ source, onDisconnect }) => {
     const isConnected = source.status === 'connected';
     const isSyncing = source.status === 'syncing';
     const isDisconnected = source.status === 'disconnected';
+    const isError = source.status === 'error';
 
     return (
         <GridCard className="col-span-12 md:col-span-6 lg:col-span-4 transition-all duration-300">
@@ -29,13 +30,13 @@ const SourceCard: React.FC<SourceCardProps> = ({ source, onDisconnect }) => {
                 <div className="flex items-center gap-2">
                     {isSyncing && <RefreshCw size={14} className="animate-spin text-orange-500" />}
                     {isConnected && <CheckCircle size={14} className="text-emerald-500" />}
-                    {isDisconnected && <XCircle size={14} className="text-red-500" />}
+                    {(isDisconnected || isError) && <XCircle size={14} className="text-red-500" />}
                 </div>
             </div>
 
             <div className="border border-gray-100 p-3 bg-white mt-auto">
                 <div className="flex justify-between items-center text-xs text-gray-500">
-                    <span>{isDisconnected ? 'Disconnected' : `Last sync: ${source.lastSync}`}</span>
+                    <span>{isDisconnected ? 'Disconnected' : isError ? 'Failed' : `Last sync: ${source.lastSync}`}</span>
                     {!isDisconnected && (
                         <button
                             onClick={() => onDisconnect(source.id)}
