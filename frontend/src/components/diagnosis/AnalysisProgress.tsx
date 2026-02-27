@@ -2,18 +2,25 @@ import React from 'react';
 import { Cpu } from 'lucide-react';
 import GridCard from '@/components/ui/GridCard';
 import AnalysisStep from './AnalysisStep';
+import { useDiagnosisStore } from '@/stores/diagnosisStore';
 
 interface AnalysisProgressProps {
-    progress: number; // 0-4
+    progress: number;
 }
 
+const DEFAULT_STEPS = [
+    { label: "Querying data sources" },
+    { label: "Detecting anomalies & analyzing signals" },
+    { label: "Testing hypotheses & correlating evidence" },
+    { label: "Generating action plan & memo" },
+];
+
 const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
-    const steps = [
-        { label: "Querying Shopify & Unicommerce (WMS)" },
-        { label: "Analyzing Meta Ads & Instagram Signals" },
-        { label: "Correlating Regional Demand vs Inventory" },
-        { label: "Generating Action Plan for Supply Chain" }
-    ];
+    const { analysisSteps } = useDiagnosisStore();
+
+    const steps = analysisSteps.length > 0
+        ? analysisSteps.map((s) => ({ label: s.detail ? `${s.label} — ${s.detail}` : s.label }))
+        : DEFAULT_STEPS;
 
     return (
         <div className="max-w-3xl mx-auto py-12">
@@ -25,7 +32,7 @@ const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
                         </div>
                         <h2 className="text-3xl font-serif italic">Synthesizing Intelligence</h2>
                         <p className="font-mono text-xs text-gray-500 tracking-wider">
-                            CROSS-REFERENCING {Math.min(progress + 1, 4)}/4 DATASETS
+                            CROSS-REFERENCING {Math.min(progress + 1, steps.length)}/{steps.length} DATASETS
                         </p>
                     </div>
 

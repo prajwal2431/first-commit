@@ -20,27 +20,31 @@ const DiagnosisPage: React.FC = () => {
         status,
         analysisProgress,
         startDiagnosis,
+        fetchResult,
         currentQuery,
         rootCause,
         impactMetrics,
         actions,
         geographicData,
-        reset
+        reset,
+        diagnosisId,
     } = useDiagnosisStore();
 
     useEffect(() => {
         if (id) {
-            // if we haven't started or the ID changed, start it
             if (status === 'idle') {
-                startDiagnosis(query);
+                if (diagnosisId === id) {
+                    fetchResult(id);
+                } else {
+                    startDiagnosis(query);
+                }
             }
         }
 
-        // Cleanup on unmount
         return () => {
             reset();
         };
-    }, [id, query, status, startDiagnosis, reset]);
+    }, [id, query, status, startDiagnosis, fetchResult, reset, diagnosisId]);
 
     return (
         <AnimatePresence mode="wait">
@@ -55,7 +59,7 @@ const DiagnosisPage: React.FC = () => {
                 </motion.div>
             )}
 
-            {status === 'completed' && rootCause && impactMetrics && geographicData && (
+            {status === 'completed' && rootCause && impactMetrics && (
                 <motion.div
                     key="result"
                     initial={{ opacity: 0, scale: 0.98 }}
@@ -69,10 +73,26 @@ const DiagnosisPage: React.FC = () => {
                         <RootCauseCard rootCause={rootCause} />
                         <BusinessImpactCard metrics={impactMetrics} />
                         <RecommendedActionsCard actions={actions} />
-                        <GeographicOpportunityCard data={geographicData} />
+                        {geographicData && (
+                            <GeographicOpportunityCard data={geographicData} />
+                        )}
                     </div>
 
                     <ChatInterface diagnosisId={id || ''} />
+                </motion.div>
+            )}
+
+            {status === 'error' && (
+                <motion.div
+                    key="error"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center justify-center min-h-[400px]"
+                >
+                    <div className="text-center space-y-4">
+                        <p className="text-xl font-serif italic text-gray-600">Analysis could not be completed</p>
+                        <p className="text-sm font-mono text-gray-400">Please ensure data has been uploaded and try again</p>
+                    </div>
                 </motion.div>
             )}
         </AnimatePresence>

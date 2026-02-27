@@ -1,24 +1,35 @@
 import React, { useState } from 'react';
 import { Search, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { request } from '@/services/api/client';
 
 const DiagnosisSearchBar: React.FC = () => {
     const [query, setQuery] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const navigate = useNavigate();
 
-    const handleDiagnose = (e?: React.FormEvent) => {
+    const handleDiagnose = async (e?: React.FormEvent) => {
         e?.preventDefault();
-        if (!query.trim()) return;
+        if (!query.trim() || isSubmitting) return;
 
-        // In a real app, this would trigger the diagnosisStore startDiagnosis action
-        const mockId = Date.now().toString();
-        console.log(`Starting diagnosis for: ${query}`);
-        navigate(`/dashboard/diagnosis/${mockId}?q=${encodeURIComponent(query)}`);
+        setIsSubmitting(true);
+        try {
+            const data = await request<{ analysisId: string }>('/analysis/start', {
+                method: 'POST',
+                body: JSON.stringify({ query }),
+            });
+            navigate(`/dashboard/diagnosis/${data.analysisId}?q=${encodeURIComponent(query)}`);
+        } catch {
+            const fallbackId = Date.now().toString();
+            navigate(`/dashboard/diagnosis/${fallbackId}?q=${encodeURIComponent(query)}`);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const suggestions = [
         "Why is revenue dropping for Disney collection despite high traffic?",
-        "Identify stockout risks for the next 7 days"
+        "Identify stockout risks for the next 7 days",
     ];
 
     return (
@@ -40,9 +51,10 @@ const DiagnosisSearchBar: React.FC = () => {
                 />
                 <button
                     type="submit"
-                    className="bg-black text-white px-8 py-4 font-mono text-xs tracking-widest hover:bg-gray-800 transition-colors flex items-center gap-2 whitespace-nowrap"
+                    disabled={isSubmitting}
+                    className="bg-black text-white px-8 py-4 font-mono text-xs tracking-widest hover:bg-gray-800 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
                 >
-                    DIAGNOSE <ArrowRight size={14} />
+                    {isSubmitting ? 'STARTING...' : 'DIAGNOSE'} <ArrowRight size={14} />
                 </button>
             </form>
 

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { request } from '@/services/api/client';
 import type { Session } from '@/types';
 
 interface SessionState {
@@ -19,30 +20,44 @@ export const useSessionStore = create<SessionState>((set) => ({
 
     fetchSessions: async () => {
         set({ isLoading: true });
-        // Mock API
-        setTimeout(() => {
-            set({
-                sessions: [
-                    { id: 'sess-1', query: "Stockout spike for Disney Stitch Tee in Delhi", date: "Oct 24", createdAt: new Date().toISOString() },
-                    { id: 'sess-2', query: "Myntra marketplace sync latency", date: "Oct 23", createdAt: new Date().toISOString() }
-                ],
-                isLoading: false
+        try {
+            const data = await request<Array<{
+                _id: string;
+                query: string;
+                status: string;
+                startedAt: string;
+                completedAt?: string;
+            }>>('/analysis/sessions');
+
+            const sessions: Session[] = data.map((s) => {
+                const d = new Date(s.startedAt);
+                return {
+                    id: s._id,
+                    query: s.query,
+                    date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    createdAt: s.startedAt,
+                };
             });
-        }, 500);
+
+            set({ sessions, isLoading: false });
+        } catch (error) {
+            set({ isLoading: false });
+            console.error('Failed to fetch sessions', error);
+        }
     },
 
     setActiveSession: (id) => set({ activeSessionId: id }),
 
     renameSession: async (id, newTitle) => {
         set((state) => ({
-            sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s)
+            sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s),
         }));
     },
 
     deleteSession: async (id) => {
         set((state) => ({
             sessions: state.sessions.filter((s) => s.id !== id),
-            activeSessionId: state.activeSessionId === id ? null : state.activeSessionId
+            activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
         }));
-    }
+    },
 }));

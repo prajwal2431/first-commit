@@ -3,24 +3,44 @@ import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer
 } from 'recharts';
 import GridCard from '@/components/ui/GridCard';
-
-const SALES_DATA_ANOMALY = [
-    { day: 'Mon', sales: 4200, traffic: 4500 },
-    { day: 'Tue', sales: 4800, traffic: 5000 },
-    { day: 'Wed', sales: 5500, traffic: 6000 },
-    { day: 'Thu', sales: 2200, traffic: 12000 },
-    { day: 'Fri', sales: 1500, traffic: 14500 },
-    { day: 'Sat', sales: 1200, traffic: 13000 },
-    { day: 'Sun', sales: 1000, traffic: 11000 },
-];
+import { useDashboardStore } from '@/stores/dashboardStore';
 
 const RevenueAtRiskChart: React.FC = () => {
+    const { revenueAtRiskSeries, kpiSummary, hasData } = useDashboardStore();
+
+    if (!hasData || revenueAtRiskSeries.length === 0) {
+        return (
+            <GridCard colSpan="col-span-12 lg:col-span-8" title="Revenue at Risk" className="border border-gray-200/60">
+                <div className="flex items-center justify-center h-64 text-gray-400">
+                    <div className="text-center">
+                        <p className="text-lg font-serif italic">No data yet</p>
+                        <p className="text-xs font-mono mt-2">Upload sales data through the Sources page to see revenue insights</p>
+                    </div>
+                </div>
+            </GridCard>
+        );
+    }
+
+    const chartData = revenueAtRiskSeries.map((d) => ({
+        day: d.date.slice(5),
+        sales: d.revenue,
+        traffic: d.traffic,
+    }));
+
+    const revGapPercent = kpiSummary?.revenueDeltaPercent ?? 0;
+    const hasAnomaly = revGapPercent < -10;
+
     return (
-        <GridCard colSpan="col-span-12 lg:col-span-8" title="Revenue at Risk" meta="DROP DETECTED" className="border border-gray-200/60">
+        <GridCard
+            colSpan="col-span-12 lg:col-span-8"
+            title="Revenue at Risk"
+            meta={hasAnomaly ? 'DROP DETECTED' : undefined}
+            className="border border-gray-200/60"
+        >
             <div className="flex flex-col md:flex-row items-end gap-8 h-full">
                 <div className="flex-1 w-full h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={SALES_DATA_ANOMALY}>
+                        <AreaChart data={chartData}>
                             <defs>
                                 <linearGradient id="colorTraffic" x1="0" y1="0" x2="0" y2="1">
                                     <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.1} />
@@ -38,16 +58,28 @@ const RevenueAtRiskChart: React.FC = () => {
                 </div>
                 <div className="w-full md:w-64 space-y-4 mb-4">
                     <div>
-                        <div className="text-4xl font-serif text-orange-500">-42%</div>
-                        <div className="text-xs font-mono text-gray-500 uppercase">Rev vs Traffic Gap</div>
+                        <div className={`text-4xl font-serif ${revGapPercent < 0 ? 'text-orange-500' : 'text-green-600'}`}>
+                            {revGapPercent > 0 ? '+' : ''}{revGapPercent.toFixed(0)}%
+                        </div>
+                        <div className="text-xs font-mono text-gray-500 uppercase">Rev vs Prior Week</div>
                     </div>
-                    <div className="text-sm text-gray-600 leading-relaxed">
-                        Critical diversion in <span className="font-semibold border-b border-black">Disney x Bonkers</span> collection. High traffic (Viral trend) meeting Zero Inventory in North Region.
-                    </div>
+                    {kpiSummary && (
+                        <div className="text-sm text-gray-600 leading-relaxed space-y-1">
+                            <p>Revenue: <span className="font-semibold">₹{formatNum(kpiSummary.totalRevenue)}</span></p>
+                            <p>Orders: <span className="font-semibold">{kpiSummary.totalOrders.toLocaleString()}</span></p>
+                            <p>AOV: <span className="font-semibold">₹{kpiSummary.avgOrderValue}</span></p>
+                        </div>
+                    )}
                 </div>
             </div>
         </GridCard>
     );
 };
+
+function formatNum(n: number): string {
+    if (n >= 100000) return `${(n / 100000).toFixed(1)}L`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+    return n.toFixed(0);
+}
 
 export default RevenueAtRiskChart;

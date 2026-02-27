@@ -44,7 +44,6 @@ const upload = multer({
   },
 });
 
-// GET /api/data-sources — list all data sources
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const list = await DataSource.find()
@@ -57,7 +56,6 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/data-sources/:id/records — preview stored records for a data source
 router.get('/:id/records', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
@@ -89,7 +87,6 @@ router.get('/:id/records', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/data-sources/upload — upload Excel or CSV file
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file?.path) {
     return res.status(400).json({
@@ -99,11 +96,12 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 
   const fileName = req.file.originalname || req.file.filename;
   const ext = path.extname(fileName).toLowerCase();
+  const dataType = (req.body?.dataType as string) || 'auto';
 
   if (ext === '.csv') {
-    return handleCsvUpload(req.file.path, fileName, res);
+    return handleCsvUpload(req, req.file.path, fileName, dataType as any, res);
   }
-  return handleExcelUpload(req.file.path, fileName, res);
+  return handleExcelUpload(req, req.file.path, fileName, res);
 });
 
 export default router;

@@ -46,7 +46,7 @@ interface SourcesState {
   uploadError: string | null;
 
   fetchSources: () => Promise<void>;
-  uploadSource: (file: File) => Promise<void>;
+  uploadSource: (file: File, dataType?: string) => Promise<void>;
   clearUploadError: () => void;
   disconnectSource: (id: string) => void;
 }
@@ -71,14 +71,23 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
     }
   },
 
-  uploadSource: async (file: File) => {
+  uploadSource: async (file: File, dataType?: string) => {
     set({ uploadError: null });
     try {
-      await uploadFile<{ dataSourceId: string; status: string; recordCount?: number }>(
-        '/data-sources/upload',
-        file,
-        'file'
-      );
+      const url = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api'}/data-sources/upload`;
+      const form = new FormData();
+      form.append('file', file);
+      if (dataType) form.append('dataType', dataType);
+      const token = localStorage.getItem('rca_token');
+      const res = await fetch(url, {
+        method: 'POST',
+        body: form,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Upload failed' }));
+        throw new Error(err.message);
+      }
       await get().fetchSources();
     } catch (err) {
       const message = err instanceof ApiError && err.data?.message
