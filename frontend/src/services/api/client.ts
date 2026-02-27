@@ -1,5 +1,10 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
+function getAuthHeaders(): Record<string, string> {
+    const token = localStorage.getItem('rca_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export class ApiError extends Error {
     status: number;
     data: any;
@@ -16,6 +21,7 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
     const url = `${API_BASE_URL}${endpoint}`;
     const headers = {
         'Content-Type': 'application/json',
+        ...getAuthHeaders(),
         ...(options?.headers || {}),
     } as HeadersInit;
 
@@ -37,7 +43,6 @@ export async function request<T>(endpoint: string, options?: RequestInit): Promi
     return res.json() as Promise<T>;
 }
 
-/** Upload file to endpoint (no JSON Content-Type; FormData). */
 export async function uploadFile<T = { dataSourceId: string; status: string; recordCount?: number }>(
     endpoint: string,
     file: File,
@@ -49,7 +54,7 @@ export async function uploadFile<T = { dataSourceId: string; status: string; rec
     const res = await fetch(url, {
         method: 'POST',
         body: form,
-        // Do not set Content-Type; browser sets multipart boundary
+        headers: getAuthHeaders(),
     });
     if (!res.ok) {
         let errorData: { message?: string };

@@ -1,3 +1,5 @@
+export { Tenant, ITenant } from './Tenant';
+export { User, IUser } from './User';
 export { DataSource, IDataSource } from './DataSource';
 export { OrderRecord, IOrderRecord } from './OrderRecord';
 export { InventoryRecord, IInventoryRecord } from './InventoryRecord';

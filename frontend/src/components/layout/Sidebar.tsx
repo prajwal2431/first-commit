@@ -12,8 +12,7 @@ const Sidebar: React.FC = () => {
     const navigate = useNavigate();
 
     const handleNewDiagnosis = () => {
-        navigate('/');
-        // Future: clear diagnosis store query
+        navigate('/dashboard/intelligence');
     };
 
     return (

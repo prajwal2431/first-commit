@@ -8,8 +8,8 @@ const SidebarNav: React.FC = () => {
     const { isOpen } = useSidebarStore();
 
     const navItems = [
-        { to: '/', label: 'Intelligence', icon: MessageSquare },
-        { to: '/sources', label: 'Data Sources', icon: Network },
+        { to: '/dashboard/sources', label: 'Data Sources', icon: Network },
+        { to: '/dashboard/intelligence', label: 'Intelligence', icon: MessageSquare },
     ];
 
     return (

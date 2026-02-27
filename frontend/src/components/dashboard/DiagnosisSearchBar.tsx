@@ -13,7 +13,7 @@ const DiagnosisSearchBar: React.FC = () => {
         // In a real app, this would trigger the diagnosisStore startDiagnosis action
         const mockId = Date.now().toString();
         console.log(`Starting diagnosis for: ${query}`);
-        navigate(`/diagnosis/${mockId}?q=${encodeURIComponent(query)}`);
+        navigate(`/dashboard/diagnosis/${mockId}?q=${encodeURIComponent(query)}`);
     };
 
     const suggestions = [

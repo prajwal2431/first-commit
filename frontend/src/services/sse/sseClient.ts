@@ -7,7 +7,7 @@ class SSEClient {
     private url: string = '';
 
     constructor() {
-        this.url = import.meta.env.VITE_SSE_URL || 'http://localhost:3001/api/events/stream';
+        this.url = import.meta.env.VITE_SSE_URL || 'http://localhost:3000/api/events/stream';
     }
 
     connect() {

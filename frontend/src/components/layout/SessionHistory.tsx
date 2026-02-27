@@ -42,7 +42,7 @@ const SessionHistory: React.FC = () => {
 
     const handleSessionClick = (id: string) => {
         setActiveSession(id);
-        navigate(`/diagnosis/${id}`);
+        navigate(`/dashboard/diagnosis/${id}`);
     };
 
     if (!isOpen) return null;
