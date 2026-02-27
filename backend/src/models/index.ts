@@ -5,3 +5,5 @@ export { Anomaly, IAnomaly } from './Anomaly';
 export { Hypothesis, IHypothesis } from './Hypothesis';
 export { RootCause, IRootCause } from './RootCause';
 export { Action, IAction } from './Action';
+export { RetailRecord, IRetailRecord } from './RetailRecord';
+export { RawIngestionRecord, IRawIngestionRecord } from './RawIngestionRecord';

@@ -1,4 +1,7 @@
-# Run backend and frontend together (requires Node.js; uses npx concurrently)
+# Run backend and frontend together.
+# Windows (no Make): use npm from repo root instead:
+#   npm install && npm run dev
+#   (or npm run dev:backend / npm run dev:frontend for one app)
 .PHONY: dev dev-backend dev-frontend install
 
 dev:

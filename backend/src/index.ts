@@ -3,6 +3,8 @@ import cors from 'cors';
 import morgan from 'morgan';
 import { connectDb } from './config/db';
 import healthRouter from './routes/health';
+import dataSourcesRouter from './routes/dataSources';
+import debugDbRouter from './routes/debugDb';
 import './models'; // Register Mongoose models
 
 const app = express();
@@ -15,6 +17,8 @@ app.use(morgan('combined'));
 
 // Routes
 app.use('/', healthRouter);
+app.use('/api/data-sources', dataSourcesRouter);
+app.use('/api/debug/db', debugDbRouter);
 
 connectDb()
   .then(() => {
