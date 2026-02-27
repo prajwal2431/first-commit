@@ -1,0 +1,16 @@
+default_agent: RCAagent_Agent
+is_agentcore_create_with_iac: true
+agents:
+  RCAagent_Agent:
+    name: RCAagent_Agent
+    entrypoint: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\src\main.py
+    deployment_type: container
+    source_path: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\src
+    aws:
+      account: null
+      region: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    is_generated_by_agentcore_create: true
