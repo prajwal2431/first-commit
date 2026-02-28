@@ -19,9 +19,10 @@ const Sidebar: React.FC = () => {
         <motion.aside
             initial={false}
             animate={{ width }}
-            className="fixed left-0 top-0 h-full bg-white/70 backdrop-blur-2xl border-r border-gray-200 z-50 flex flex-col transition-all duration-300 shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)]"
+            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+            className="fixed left-0 top-0 h-full bg-white/70 backdrop-blur-2xl border-r border-gray-200 z-50 flex flex-col shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)]"
         >
-            <div className={`flex flex-col h-full min-w-[72px] ${isOpen ? 'w-[280px]' : 'w-[72px]'}`}>
+            <div className={`flex flex-col h-full min-w-[72px] w-full`}>
 
                 {/* Top Actions */}
                 <div className="p-3 flex items-center justify-between border-b border-gray-200/50">

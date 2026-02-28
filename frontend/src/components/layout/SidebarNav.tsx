@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { MessageSquare, Network } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { cn } from '@/lib/utils';
+import { AnimatePresence, motion } from 'framer-motion';
 
 const SidebarNav: React.FC = () => {
     const { isOpen } = useSidebarStore();
@@ -31,7 +32,19 @@ const SidebarNav: React.FC = () => {
                     title={item.label}
                 >
                     <item.icon size={18} className="shrink-0" />
-                    {isOpen && item.label}
+                    <AnimatePresence mode="wait">
+                        {isOpen && (
+                            <motion.span
+                                initial={{ opacity: 0, width: 0 }}
+                                animate={{ opacity: 1, width: 'auto' }}
+                                exit={{ opacity: 0, width: 0 }}
+                                transition={{ duration: 0.2, delay: 0.1 }}
+                                className="truncate"
+                            >
+                                {item.label}
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
                 </NavLink>
             ))}
         </div>

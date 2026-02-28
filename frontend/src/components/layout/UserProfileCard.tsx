@@ -89,25 +89,40 @@ const UserProfileCard: React.FC = () => {
         <div className="w-8 h-8 bg-black flex items-center justify-center text-white shrink-0 font-serif italic text-xs">
           {initials !== '??' ? initials : <User size={14} />}
         </div>
-        {isOpen && (
-          <>
-            <div className="flex-1 min-w-0 text-left">
-              <div className="text-sm font-semibold text-gray-900 truncate">
-                {user?.tenant?.companyName ?? 'User'}
-              </div>
-              <div className="text-[10px] font-mono text-gray-500 truncate">
-                {user?.tenant?.id?.toUpperCase() ?? ''}
-              </div>
-            </div>
-            <ChevronUp
-              size={14}
-              className={cn(
-                "text-gray-400 transition-transform duration-200 shrink-0",
-                showMenu ? "rotate-0" : "rotate-180"
-              )}
-            />
-          </>
-        )}
+        <AnimatePresence mode="wait">
+          {isOpen && (
+            <>
+              <motion.div
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.2, delay: 0.15 }}
+                className="flex-1 min-w-0 text-left overflow-hidden flex flex-col"
+              >
+                <div className="text-sm font-semibold text-gray-900 truncate">
+                  {user?.tenant?.companyName ?? 'User'}
+                </div>
+                <div className="text-[10px] font-mono text-gray-500 truncate">
+                  {user?.tenant?.id?.toUpperCase() ?? ''}
+                </div>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, delay: 0.2 }}
+              >
+                <ChevronUp
+                  size={14}
+                  className={cn(
+                    "text-gray-400 transition-transform duration-200 shrink-0",
+                    showMenu ? "rotate-0" : "rotate-180"
+                  )}
+                />
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </button>
     </div>
   );
