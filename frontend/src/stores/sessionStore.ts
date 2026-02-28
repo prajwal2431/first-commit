@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { request } from '@/services/api/client';
 import type { Session } from '@/types';
 
@@ -6,73 +7,119 @@ interface SessionState {
     sessions: Session[];
     activeSessionId: string | null;
     isLoading: boolean;
+    hasFetched: boolean;
 
-    fetchSessions: () => Promise<void>;
+    fetchSessions: (force?: boolean) => Promise<void>;
+    addSession: (query: string) => string;
     setActiveSession: (id: string | null) => void;
     renameSession: (id: string, newTitle: string) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
-    sessions: [],
-    activeSessionId: null,
-    isLoading: false,
+export const useSessionStore = create<SessionState>()(
+    persist(
+        (set, get) => ({
+            sessions: [],
+            activeSessionId: null,
+            isLoading: false,
+            hasFetched: false,
 
-    fetchSessions: async () => {
-        set({ isLoading: true });
-        try {
-            const data = await request<Array<{
-                _id: string;
-                query: string;
-                status: string;
-                startedAt: string;
-                completedAt?: string;
-            }>>('/analysis/sessions');
+            fetchSessions: async (force = false) => {
+                // Skip if already fetched (unless forced)
+                if (!force && get().hasFetched) return;
 
-            const sessions: Session[] = data.map((s) => {
-                const d = new Date(s.startedAt);
-                return {
-                    id: s._id,
-                    query: s.query,
-                    date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                    createdAt: s.startedAt,
+                set({ isLoading: true });
+                try {
+                    const data = await request<Array<{
+                        _id: string;
+                        query: string;
+                        status: string;
+                        startedAt: string;
+                        completedAt?: string;
+                    }>>('/analysis/sessions');
+
+                    // Start with our persisted local sessions
+                    let mergedSessions = [...get().sessions];
+                    const seen = new Set<string>(mergedSessions.map(s => s.id));
+
+                    // Add backend sessions
+                    for (const s of data) {
+                        if (seen.has(s._id)) continue;
+                        seen.add(s._id);
+                        const d = new Date(s.startedAt);
+                        mergedSessions.push({
+                            id: s._id,
+                            query: s.query,
+                            date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            createdAt: s.startedAt,
+                        });
+                    }
+
+                    // Sort by newest first
+                    mergedSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                    set({ sessions: mergedSessions, isLoading: false, hasFetched: true });
+                } catch (error) {
+                    set({ isLoading: false });
+                    console.error('Failed to fetch sessions', error);
+                }
+            },
+
+            setActiveSession: (id) => set({ activeSessionId: id }),
+
+            addSession: (query: string) => {
+                const id = Date.now().toString();
+                const now = new Date();
+                const newSession: Session = {
+                    id,
+                    query,
+                    date: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    createdAt: now.toISOString(),
                 };
-            });
+                set((state) => ({
+                    sessions: [newSession, ...state.sessions],
+                    activeSessionId: id,
+                }));
+                return id;
+            },
 
-            set({ sessions, isLoading: false });
-        } catch (error) {
-            set({ isLoading: false });
-            console.error('Failed to fetch sessions', error);
+            renameSession: async (id, newTitle) => {
+                try {
+                    // Try to rename on backend if it exists there, but don't block local rename
+                    request(`/analysis/sessions/${id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ title: newTitle }),
+                    }).catch(() => { });
+
+                    set((state) => ({
+                        sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s),
+                    }));
+                } catch (error) {
+                    console.error('Failed to rename session', error);
+                }
+            },
+
+            deleteSession: async (id) => {
+                try {
+                    // Try to delete on backend if it exists there, but don't block local delete
+                    request(`/analysis/sessions/${id}`, {
+                        method: 'DELETE',
+                    }).catch(() => { });
+
+                    set((state) => ({
+                        sessions: state.sessions.filter((s) => s.id !== id),
+                        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+                    }));
+                } catch (error) {
+                    console.error('Failed to delete session', error);
+                }
+            },
+        }),
+        {
+            name: 'session-storage',
+            partialize: (state) => ({
+                sessions: state.sessions.filter(s => !s.id.includes('dummy')) // Keep all valid sessions
+            }),
         }
-    },
-
-    setActiveSession: (id) => set({ activeSessionId: id }),
-
-    renameSession: async (id, newTitle) => {
-        try {
-            await request(`/analysis/sessions/${id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ title: newTitle }),
-            });
-            set((state) => ({
-                sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s),
-            }));
-        } catch (error) {
-            console.error('Failed to rename session', error);
-        }
-    },
-
-    deleteSession: async (id) => {
-        try {
-            await request(`/analysis/sessions/${id}`, {
-                method: 'DELETE',
-            });
-            set((state) => ({
-                sessions: state.sessions.filter((s) => s.id !== id),
-                activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-            }));
-        } catch (error) {
-            console.error('Failed to delete session', error);
-        }
-    },
-}));
+    )
+);

@@ -1,30 +1,15 @@
 import React, { useState } from 'react';
 import { Search, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { request } from '@/services/api/client';
 
 const DiagnosisSearchBar: React.FC = () => {
     const [query, setQuery] = useState("");
-    const [isSubmitting, setIsSubmitting] = useState(false);
     const navigate = useNavigate();
 
-    const handleDiagnose = async (e?: React.FormEvent) => {
+    const handleDiagnose = (e?: React.FormEvent) => {
         e?.preventDefault();
-        if (!query.trim() || isSubmitting) return;
-
-        setIsSubmitting(true);
-        try {
-            const data = await request<{ analysisId: string }>('/analysis/start', {
-                method: 'POST',
-                body: JSON.stringify({ query }),
-            });
-            navigate(`/dashboard/diagnosis/${data.analysisId}?q=${encodeURIComponent(query)}`);
-        } catch {
-            const fallbackId = Date.now().toString();
-            navigate(`/dashboard/diagnosis/${fallbackId}?q=${encodeURIComponent(query)}`);
-        } finally {
-            setIsSubmitting(false);
-        }
+        if (!query.trim()) return;
+        navigate(`/dashboard/chat?q=${encodeURIComponent(query.trim())}`);
     };
 
     const suggestions = [
@@ -51,10 +36,10 @@ const DiagnosisSearchBar: React.FC = () => {
                 />
                 <button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={!query.trim()}
                     className="bg-black text-white px-8 py-4 font-mono text-xs tracking-widest hover:bg-gray-800 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
                 >
-                    {isSubmitting ? 'STARTING...' : 'DIAGNOSE'} <ArrowRight size={14} />
+                    ASK <ArrowRight size={14} />
                 </button>
             </form>
 
@@ -63,7 +48,7 @@ const DiagnosisSearchBar: React.FC = () => {
                 {suggestions.map((s, i) => (
                     <button
                         key={i}
-                        onClick={() => setQuery(s)}
+                        onClick={() => navigate(`/dashboard/chat?q=${encodeURIComponent(s)}`)}
                         className="text-xs font-mono text-gray-500 hover:text-black hover:bg-gray-100 px-2 py-1 transition-colors border border-gray-200"
                     >
                         {s.length > 30 ? s.substring(0, 30) + '...' : s}
@@ -75,3 +60,4 @@ const DiagnosisSearchBar: React.FC = () => {
 };
 
 export default DiagnosisSearchBar;
+

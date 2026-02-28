@@ -23,7 +23,7 @@ const SessionHistory: React.FC = () => {
 
     useEffect(() => {
         fetchSessions();
-    }, [fetchSessions]);
+    }, []);
 
     // Close menu on outside click
     useEffect(() => {
@@ -71,7 +71,7 @@ const SessionHistory: React.FC = () => {
 
     const handleSessionClick = (id: string) => {
         setActiveSession(id);
-        navigate(`/dashboard/diagnosis/${id}`);
+        navigate(`/dashboard/chat/${id}`);
     };
 
     if (!isOpen) return null;

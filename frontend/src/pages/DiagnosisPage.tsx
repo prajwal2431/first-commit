@@ -74,7 +74,7 @@ const DiagnosisPage: React.FC = () => {
                         )}
                     </div>
 
-                    <ChatInterface diagnosisId={id || ''} />
+                    <ChatInterface />
                 </motion.div>
             )}
 

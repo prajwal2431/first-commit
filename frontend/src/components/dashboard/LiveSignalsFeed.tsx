@@ -3,23 +3,13 @@ import GridCard from '@/components/ui/GridCard';
 import AlertItem from './AlertItem';
 import { useNavigate } from 'react-router-dom';
 import { useDashboardStore } from '@/stores/dashboardStore';
-import { request } from '@/services/api/client';
 
 const LiveSignalsFeed: React.FC = () => {
     const navigate = useNavigate();
     const { liveSignals, hasData } = useDashboardStore();
 
-    const handleAlertClick = async (suggestedQuery: string) => {
-        try {
-            const data = await request<{ analysisId: string }>('/analysis/start', {
-                method: 'POST',
-                body: JSON.stringify({ query: suggestedQuery }),
-            });
-            navigate(`/dashboard/diagnosis/${data.analysisId}?q=${encodeURIComponent(suggestedQuery)}`);
-        } catch {
-            const fallbackId = Date.now().toString();
-            navigate(`/dashboard/diagnosis/${fallbackId}?q=${encodeURIComponent(suggestedQuery)}`);
-        }
+    const handleAlertClick = (suggestedQuery: string) => {
+        navigate(`/dashboard/chat?q=${encodeURIComponent(suggestedQuery)}`);
     };
 
     if (!hasData || liveSignals.length === 0) {
@@ -60,7 +50,7 @@ const LiveSignalsFeed: React.FC = () => {
                         level={severityToLevel(signal.severity)}
                         msg={signal.title}
                         time={formatTime(signal.detectedAt)}
-                        onClick={() => handleAlertClick(signal.suggestedQuery)}
+                        onClick={() => handleAlertClick(signal.suggestedQuery || signal.title || 'Tell me about this signal')}
                     />
                 ))}
             </div>

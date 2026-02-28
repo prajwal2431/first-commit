@@ -8,6 +8,7 @@ import SignupPage from '@/pages/SignupPage';
 import DashboardPage from '@/pages/DashboardPage';
 import DiagnosisPage from '@/pages/DiagnosisPage';
 import SourcesPage from '@/pages/SourcesPage';
+import ChatPage from '@/pages/ChatPage';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, loading } = useAuthStore();
@@ -53,6 +54,8 @@ const App: React.FC = () => {
         <Route path="/dashboard/sources" element={<SourcesPage />} />
         <Route path="/dashboard/intelligence" element={<DashboardPage />} />
         <Route path="/dashboard/diagnosis/:id" element={<DiagnosisPage />} />
+        <Route path="/dashboard/chat" element={<ChatPage />} />
+        <Route path="/dashboard/chat/:sessionId" element={<ChatPage />} />
       </Route>
 
       {/* Fallback */}
