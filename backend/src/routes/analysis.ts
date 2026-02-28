@@ -149,4 +149,34 @@ router.get('/sessions', async (req: Request, res: Response) => {
   }
 });
 
+router.patch('/sessions/:id', async (req: Request, res: Response) => {
+  try {
+    const { title } = req.body;
+    if (!title) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+    const session = await AnalysisSession.findByIdAndUpdate(
+      req.params.id,
+      { query: title },
+      { new: true }
+    );
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    res.json(session);
+  } catch (err) {
+    console.error('Rename session error:', err);
+    res.status(500).json({ message: 'Failed to rename session' });
+  }
+});
+
+router.delete('/sessions/:id', async (req: Request, res: Response) => {
+  try {
+    const session = await AnalysisSession.findByIdAndDelete(req.params.id);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    res.json({ message: 'Session deleted successfully' });
+  } catch (err) {
+    console.error('Delete session error:', err);
+    res.status(500).json({ message: 'Failed to delete session' });
+  }
+});
+
 export default router;

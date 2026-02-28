@@ -13,10 +13,13 @@ const SessionHistory: React.FC = () => {
         activeSessionId,
         setActiveSession,
         deleteSession,
+        renameSession,
         fetchSessions
     } = useSessionStore();
 
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+    const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+    const [editTitle, setEditTitle] = useState<string>('');
 
     useEffect(() => {
         fetchSessions();
@@ -38,6 +41,32 @@ const SessionHistory: React.FC = () => {
         e.stopPropagation();
         deleteSession(id);
         setOpenMenuId(null);
+        if (activeSessionId === id) {
+            navigate('/dashboard/intelligence');
+        }
+    };
+
+    const handleRenameClick = (id: string, currentTitle: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        setEditingSessionId(id);
+        setEditTitle(currentTitle);
+        setOpenMenuId(null);
+    };
+
+    const handleRenameSubmit = async (id: string, e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        if (editTitle.trim()) {
+            await renameSession(id, editTitle.trim());
+        }
+        setEditingSessionId(null);
+    };
+
+    const handleRenameKeyDown = (e: React.KeyboardEvent, id: string) => {
+        if (e.key === 'Enter') {
+            handleRenameSubmit(id);
+        } else if (e.key === 'Escape') {
+            setEditingSessionId(null);
+        }
     };
 
     const handleSessionClick = (id: string) => {
@@ -65,8 +94,21 @@ const SessionHistory: React.FC = () => {
                                 )}
                                 onClick={() => handleSessionClick(sess.id)}
                             >
-                                <div className="truncate flex-1 pr-6">
-                                    {sess.query}
+                                <div className="truncate flex-1 pr-6 flex items-center h-full">
+                                    {editingSessionId === sess.id ? (
+                                        <input
+                                            type="text"
+                                            value={editTitle}
+                                            onChange={(e) => setEditTitle(e.target.value)}
+                                            onKeyDown={(e) => handleRenameKeyDown(e, sess.id)}
+                                            onBlur={() => handleRenameSubmit(sess.id)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            autoFocus
+                                            className="w-full bg-white border border-gray-300 rounded-none px-1 py-0.5 text-sm outline-none text-black"
+                                        />
+                                    ) : (
+                                        sess.query
+                                    )}
                                 </div>
 
                                 <div className={cn(
@@ -86,7 +128,7 @@ const SessionHistory: React.FC = () => {
                                         <div className="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-200 shadow-xl py-1 z-50 flex flex-col font-mono text-xs text-gray-700">
                                             <button
                                                 className="px-3 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
-                                                onClick={(e) => { e.stopPropagation(); /* Rename logic */ }}
+                                                onClick={(e) => handleRenameClick(sess.id, sess.query, e)}
                                             >
                                                 <Edit2 size={12} /> Rename
                                             </button>

@@ -54,3 +54,7 @@ coverage/
 # Misc
 *.local
 .cache/
+
+# Environment variables
+*.env.local
+*.env
