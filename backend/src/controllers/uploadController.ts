@@ -33,15 +33,16 @@ export async function handleExcelUpload(
   const orgId = getOrgId(req);
   const userId = getUserId(req);
 
-  const doc = await DataSource.create({
-    userId,
-    organizationId: orgId,
-    fileName,
-    fileType: 'excel',
-    status: 'processing',
-  });
-
+  let doc;
   try {
+    doc = await DataSource.create({
+      userId,
+      organizationId: orgId,
+      fileName,
+      fileType: 'excel',
+      status: 'processing',
+    });
+
     await ingestRawExcel(filePath, String(doc._id), orgId);
 
     const structuredResult = await parseExcelFile(filePath, String(doc._id), orgId);
@@ -61,9 +62,11 @@ export async function handleExcelUpload(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Parse failed';
-    doc.status = 'failed';
-    doc.errorMessage = message;
-    await doc.save();
+    if (doc) {
+      doc.status = 'failed';
+      doc.errorMessage = message;
+      await doc.save().catch(() => { });
+    }
     cleanupFile(filePath);
     res.status(400).json({ message });
   }
@@ -79,15 +82,16 @@ export async function handleCsvUpload(
   const orgId = getOrgId(req);
   const userId = getUserId(req);
 
-  const doc = await DataSource.create({
-    userId,
-    organizationId: orgId,
-    fileName,
-    fileType: 'csv',
-    status: 'processing',
-  });
-
+  let doc;
   try {
+    doc = await DataSource.create({
+      userId,
+      organizationId: orgId,
+      fileName,
+      fileType: 'csv',
+      status: 'processing',
+    });
+
     await ingestRawCsv(filePath, String(doc._id), orgId);
 
     let recordCount = 0;
@@ -147,9 +151,11 @@ export async function handleCsvUpload(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Parse failed';
-    doc.status = 'failed';
-    doc.errorMessage = message;
-    await doc.save();
+    if (doc) {
+      doc.status = 'failed';
+      doc.errorMessage = message;
+      await doc.save().catch(() => { });
+    }
     cleanupFile(filePath);
     res.status(400).json({ message });
   }
