@@ -49,15 +49,30 @@ export const useSessionStore = create<SessionState>((set) => ({
     setActiveSession: (id) => set({ activeSessionId: id }),
 
     renameSession: async (id, newTitle) => {
-        set((state) => ({
-            sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s),
-        }));
+        try {
+            await request(`/analysis/sessions/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ title: newTitle }),
+            });
+            set((state) => ({
+                sessions: state.sessions.map((s) => s.id === id ? { ...s, query: newTitle } : s),
+            }));
+        } catch (error) {
+            console.error('Failed to rename session', error);
+        }
     },
 
     deleteSession: async (id) => {
-        set((state) => ({
-            sessions: state.sessions.filter((s) => s.id !== id),
-            activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-        }));
+        try {
+            await request(`/analysis/sessions/${id}`, {
+                method: 'DELETE',
+            });
+            set((state) => ({
+                sessions: state.sessions.filter((s) => s.id !== id),
+                activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+            }));
+        } catch (error) {
+            console.error('Failed to delete session', error);
+        }
     },
 }));
