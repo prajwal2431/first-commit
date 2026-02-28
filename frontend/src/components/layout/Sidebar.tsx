@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { PanelLeftClose, PanelLeftOpen, SquarePen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import SidebarNav from './SidebarNav';
 import SessionHistory from './SessionHistory';
@@ -11,8 +11,8 @@ const Sidebar: React.FC = () => {
     const { isOpen, toggle, width } = useSidebarStore();
     const navigate = useNavigate();
 
-    const handleNewDiagnosis = () => {
-        navigate('/dashboard/intelligence');
+    const handleNewChat = () => {
+        navigate('/dashboard/chat');
     };
 
     return (
@@ -37,22 +37,22 @@ const Sidebar: React.FC = () => {
 
                     {isOpen && (
                         <button
-                            onClick={handleNewDiagnosis}
+                            onClick={handleNewChat}
                             className="p-2 text-gray-500 hover:text-black hover:bg-gray-100 transition-colors flex shrink-0 justify-center items-center gap-2 font-mono text-xs uppercase"
-                            title="New Diagnosis"
+                            title="New Chat"
                         >
-                            <SquarePen size={18} />
+                            <Plus size={18} />
                         </button>
                     )}
 
                     {!isOpen && (
                         <div className="absolute top-[60px] left-0 w-full flex justify-center">
                             <button
-                                onClick={handleNewDiagnosis}
+                                onClick={handleNewChat}
                                 className="p-2 mt-2 text-gray-500 hover:text-black hover:bg-gray-100 transition-colors"
-                                title="New Diagnosis"
+                                title="New Chat"
                             >
-                                <SquarePen size={20} />
+                                <Plus size={20} />
                             </button>
                         </div>
                     )}
