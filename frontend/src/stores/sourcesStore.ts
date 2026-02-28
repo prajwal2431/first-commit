@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import type { DataSource } from '@/types';
-import { request, uploadFile, ApiError } from '@/services/api/client';
+import { request, ApiError } from '@/services/api/client';
 
 interface BackendDataSource {
   _id: string;
   fileName: string;
   fileType: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  label?: string;
+  domain?: string;
+  mode?: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'connected' | 'syncing' | 'disconnected';
   recordCount?: number;
   uploadedAt: string;
   errorMessage?: string;
@@ -23,8 +26,8 @@ function formatLastSync(iso: string): string {
 }
 
 function mapStatus(s: BackendDataSource['status']): DataSource['status'] {
-  if (s === 'completed') return 'connected';
-  if (s === 'processing' || s === 'pending') return 'syncing';
+  if (s === 'completed' || s === 'connected') return 'connected';
+  if (s === 'processing' || s === 'pending' || s === 'syncing') return 'syncing';
   if (s === 'failed') return 'error';
   return 'disconnected';
 }
@@ -33,7 +36,10 @@ function mapSource(b: BackendDataSource): DataSource {
   return {
     id: b._id,
     name: b.fileName,
+    label: b.label || (b.fileName.length > 20 ? b.fileName.slice(0, 20) + '...' : b.fileName),
     type: b.fileType,
+    domain: b.domain || 'Data Ingestion',
+    mode: b.mode || 'Upload',
     status: mapStatus(b.status),
     lastSync: formatLastSync(b.uploadedAt),
     icon: b.fileType === 'excel' ? 'file' : b.fileType,
@@ -47,8 +53,9 @@ interface SourcesState {
 
   fetchSources: () => Promise<void>;
   uploadSource: (file: File, dataType?: string) => Promise<void>;
+  connectSource: (sourceMeta: Partial<DataSource>) => Promise<void>;
   clearUploadError: () => void;
-  disconnectSource: (id: string) => void;
+  disconnectSource: (id: string) => Promise<void>;
 }
 
 export const useSourcesStore = create<SourcesState>((set, get) => ({
@@ -100,8 +107,59 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
 
   clearUploadError: () => set({ uploadError: null }),
 
-  disconnectSource: () => {
-    // Optional: call DELETE /api/data-sources/:id when backend supports it
-    set((state) => ({ sources: state.sources }));
+  connectSource: async (sourceMeta) => {
+    // Generate a temporary mock source for immediate UI feedback
+    const tempId = `temp-${Date.now()}`;
+    const mockSource: DataSource = {
+      id: tempId,
+      name: sourceMeta.name || 'Unknown Source',
+      label: sourceMeta.label || sourceMeta.name || 'Unknown Source',
+      type: sourceMeta.type || 'api',
+      domain: sourceMeta.domain || 'Data Ingestion',
+      mode: sourceMeta.mode || 'API',
+      status: 'syncing',
+      lastSync: 'Just now',
+      icon: sourceMeta.icon || 'database',
+      ...sourceMeta
+    };
+
+    // Optimistically add to UI
+    set((state) => ({ sources: [mockSource, ...state.sources] }));
+
+    try {
+      // Connect to the backend route we just created
+      await request('/data-sources', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: sourceMeta.name || 'Unknown Source',
+          label: sourceMeta.label || sourceMeta.name || 'Unknown Source',
+          type: sourceMeta.type || 'api',
+          domain: sourceMeta.domain || 'Data Ingestion',
+          mode: sourceMeta.mode || 'API'
+        })
+      });
+
+      // Refetch actual list which will include the new source from DB
+      await get().fetchSources();
+    } catch (err) {
+      console.error('Failed to connect source:', err);
+      // Remove the optimistic temp source on failure
+      set((state) => ({ sources: state.sources.filter(s => s.id !== tempId) }));
+      throw err;
+    }
+  },
+
+  disconnectSource: async (id: string) => {
+    // Optimistic UI updates
+    set((state) => ({ sources: state.sources.filter(s => s.id !== id) }));
+
+    // API Call
+    try {
+      await request(`/data-sources/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Failed to delete source from backend:', err);
+      // Refresh sources visually incase of backend failure
+      await get().fetchSources();
+    }
   },
 }));

@@ -57,6 +57,55 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const orgId = req.user?.tenantId ?? 'default';
+    const userId = req.user?.userId ?? 'default';
+    const { name, label, type, domain, mode } = req.body;
+
+    // Create new DataSource model instance
+    const newSource = await DataSource.create({
+      userId,
+      organizationId: orgId,
+      fileName: name || label || 'Integration',
+      fileType: type || 'integration',
+      label: label || name,
+      domain: domain || 'Data Ingestion',
+      mode: mode || 'API',
+      status: 'connected', // Immediately marked as connected for now
+    });
+
+    res.status(201).json(newSource);
+  } catch (err) {
+    console.error('Create data source error:', err);
+    res.status(500).json({ message: 'Failed to create data source' });
+  }
+});
+
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid data source ID' });
+    }
+    const orgId = req.user?.tenantId ?? 'default';
+
+    // Delete source
+    const result = await DataSource.deleteOne({ _id: id, organizationId: orgId });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: 'Data source not found' });
+    }
+
+    // Attempt to cleanup related ingestion records if any
+    await RawIngestionRecord.deleteMany({ sourceId: String(id) });
+
+    res.status(200).json({ message: 'Data source deleted successfully' });
+  } catch (err) {
+    console.error('Delete data source error:', err);
+    res.status(500).json({ message: 'Failed to delete data source' });
+  }
+});
+
 router.get('/:id/records', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;

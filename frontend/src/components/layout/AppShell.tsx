@@ -17,6 +17,7 @@ const AppShell: React.FC = () => {
 
             {/* Main Content Area */}
             <motion.main
+                id="right-pane"
                 initial={false}
                 animate={{ marginLeft: width }}
                 className="flex-1 relative z-10 w-full h-screen overflow-hidden flex flex-col transition-all duration-300 bg-[#FAFAFA]"

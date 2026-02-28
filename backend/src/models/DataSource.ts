@@ -44,9 +44,12 @@ export interface IDataSource extends Document {
   userId: string;
   organizationId: string;
   fileName: string;
-  fileType: 'excel' | 'csv' | 'marketplace' | 'data_warehouse';
+  fileType: 'excel' | 'csv' | 'marketplace' | 'data_warehouse' | 'api' | 'sheets' | 'integration';
+  label?: string;
+  domain?: string;
+  mode?: string;
   uploadedAt: Date;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'connected' | 'syncing' | 'disconnected';
   recordCount?: number;
   errorMessage?: string;
   columnMappings?: Array<{
@@ -76,16 +79,19 @@ const dataSourceSchema = new Schema<IDataSource>(
   {
     userId: { type: String, required: true },
     organizationId: { type: String, required: true },
-    fileName: { type: String, required: true },
+    fileName: { type: String }, // Made optional so API integrations don't need a file name strictly 
     fileType: {
       type: String,
-      enum: ['excel', 'csv', 'marketplace', 'data_warehouse'],
+      enum: ['excel', 'csv', 'marketplace', 'data_warehouse', 'api', 'sheets', 'integration'],
       required: true,
     },
+    label: { type: String },
+    domain: { type: String },
+    mode: { type: String },
     uploadedAt: { type: Date, default: Date.now },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'connected', 'syncing', 'disconnected'],
       default: 'pending',
     },
     recordCount: Number,

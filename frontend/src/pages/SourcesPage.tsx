@@ -1,139 +1,101 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { Anchor, Plus, Network, ShoppingCart, Box, Instagram, Truck, Database } from 'lucide-react';
 import { useSourcesStore } from '@/stores/sourcesStore';
-import SourceCard from '@/components/sources/SourceCard';
-import AddSourceCard from '@/components/sources/AddSourceCard';
+import GridCard from '@/components/ui/GridCard';
+import Tag from '@/components/ui/Tag';
+import EcosystemAddSourceModal from '@/components/sources/EcosystemAddSourceModal';
+
+const getDomainIcon = (label: string = '', domain: string = '') => {
+    if (label.includes('Shopify') || label.includes('WooCommerce') || label.includes('Magento')) return <ShoppingCart size={20} className="text-black" />;
+    if (label.includes('Unicommerce') || label.includes('SAP') || label.includes('Tally')) return <Box size={20} className="text-black" />;
+    if (label.includes('Meta') || label.includes('Google') || label.includes('TikTok')) return <Instagram size={20} className="text-black" />;
+    if (label.includes('Dart') || label.includes('rocket') || label.includes('Delhivery')) return <Truck size={20} className="text-black" />;
+
+    switch (domain) {
+        case 'Sales & Orders': return <ShoppingCart size={20} className="text-black" />;
+        case 'Inventory & ERP': return <Box size={20} className="text-black" />;
+        case 'Marketing & Traffic': return <Instagram size={20} className="text-black" />;
+        case 'Fulfillment': return <Truck size={20} className="text-black" />;
+        default: return <Database size={20} className="text-black" />;
+    }
+}
 
 const SourcesPage: React.FC = () => {
-    const { sources, fetchSources, uploadSource, uploadError, clearUploadError, disconnectSource } = useSourcesStore();
-    const [showUpload, setShowUpload] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const { sources, fetchSources } = useSourcesStore();
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     useEffect(() => {
         fetchSources();
     }, [fetchSources]);
 
-    const handleAddSource = () => {
-        clearUploadError();
-        setSelectedFile(null);
-        setShowUpload(true);
-        fileInputRef.current?.click();
-    };
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const name = file.name.toLowerCase();
-            const allowed = name.endsWith('.xlsx') || name.endsWith('.csv');
-            if (!allowed) {
-                clearUploadError();
-                setShowUpload(false);
-                return;
-            }
-            setSelectedFile(file);
-        }
-        if (e.target) e.target.value = '';
-    };
-
-    const handleUpload = async () => {
-        if (!selectedFile) return;
-        setUploading(true);
-        try {
-            await uploadSource(selectedFile);
-            setShowUpload(false);
-            setSelectedFile(null);
-        } catch {
-            // Error already set in store
-        } finally {
-            setUploading(false);
-        }
-    };
-
-    const handleCloseUpload = () => {
-        setShowUpload(false);
-        setSelectedFile(null);
-        clearUploadError();
-    };
-
     return (
         <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             className="space-y-8 pb-24"
         >
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.csv"
-                className="hidden"
-                onChange={handleFileChange}
-            />
-            <div className="grid grid-cols-12 gap-6">
-                {sources.map(source => (
-                    <SourceCard
-                        key={source.id}
-                        source={source}
-                        onDisconnect={disconnectSource}
-                    />
-                ))}
-                <AddSourceCard onAdd={handleAddSource} />
+            <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
+                <div>
+                    <h2 className="text-2xl font-serif italic text-gray-900">Connected Grounding Sources</h2>
+                    <p className="text-sm text-gray-500 mt-1">Nexus continuously syncs these "Experts" to provide accurate Root Cause Analyses.</p>
+                </div>
+                <button
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="bg-black text-white px-4 py-2 font-mono text-xs tracking-widest hover:bg-gray-800 transition-colors flex items-center gap-2  cursor-pointer"
+                >
+                    <Anchor size={14} /> ADD SOURCE
+                </button>
             </div>
 
-            {showUpload && (
-                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white p-6 max-w-sm w-full border border-gray-200 shadow-xl relative">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-serif italic text-gray-900 border-b border-black inline-block">
-                                Upload data
-                            </h3>
-                            <button
-                                onClick={handleCloseUpload}
-                                className="text-gray-400 hover:text-black hover:bg-gray-100 p-1 transition-colors"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-4">
-                            Excel: orders/inventory. CSV: daily retail (date, sku, revenue, units, traffic, inventory, returns). Column names can vary (e.g. sales → revenue, qty → units).
-                        </p>
-                        <div className="mb-4">
-                            <input
-                                type="file"
-                                accept=".xlsx,.csv"
-                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-gray-100 file:text-gray-700"
-                                onChange={(e) => {
-                                    const f = e.target.files?.[0];
-                                    setSelectedFile(f ?? null);
-                                }}
-                            />
-                            {selectedFile && (
-                                <p className="mt-2 text-xs text-gray-500 truncate">{selectedFile.name}</p>
-                            )}
-                        </div>
-                        {uploadError && (
-                            <p className="text-sm text-red-600 mb-4">{uploadError}</p>
-                        )}
-                        <div className="flex justify-end gap-2">
-                            <button
-                                onClick={handleCloseUpload}
-                                className="px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleUpload}
-                                disabled={!selectedFile || uploading}
-                                className="px-4 py-2 bg-black text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer font-mono text-xs uppercase"
-                            >
-                                {uploading ? 'Uploading…' : 'Upload'}
-                            </button>
-                        </div>
+            {/* Sources Grid/List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+                {sources.length === 0 && (
+                    <div className="col-span-1 md:col-span-2 lg:col-span-3 py-12 flex flex-col items-center justify-center text-gray-400 border border-dashed border-gray-200 bg-white/50 backdrop-blur-sm ">
+                        <Network size={48} className="mb-4 opacity-50" />
+                        <p className="font-mono text-xs tracking-widest uppercase">No sources connected</p>
+                        <p className="text-sm mt-2 text-gray-500 max-w-md text-center">Connect your POS, WMS, or Marketing feeds to allow Nexus to perform cross-domain Root Cause Analysis.</p>
                     </div>
+                )}
+
+                {sources.map((src) => (
+                    <GridCard key={src.id} colSpan="col-span-1" className="border border-gray-200 hover:border-black hover:bg-gray-50 transition-colors group">
+                        <div className="flex items-start justify-between mb-4">
+                            <div className="p-3 bg-white border border-gray-200 group-hover:border-black transition-colors flex items-center justify-center ">
+                                {getDomainIcon(src.label || src.name, src.domain)}
+                            </div>
+                            <Tag type={src.status.includes('syncing') ? 'alert' : 'success'}>{src.status}</Tag>
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-lg text-gray-900 truncate" title={src.label || src.name}>{src.label || src.name}</h3>
+                            <p className="text-[10px] font-mono text-gray-500 mt-1 uppercase tracking-widest">MAP: {src.domain || 'Data Ingestion'}</p>
+                            <p className="text-[10px] font-mono text-gray-500 mt-1 uppercase tracking-widest border border-gray-200 inline-block px-1.5 py-0.5 bg-white ">VIA {src.mode || 'Upload'}</p>
+                        </div>
+                        <div className="mt-6 pt-4 border-t border-gray-200 flex justify-between items-center text-[10px] font-mono uppercase tracking-widest">
+                            <span className="text-gray-400">LAST SYNC:</span>
+                            <span className={src.status.includes('syncing') ? 'text-orange-600 animate-pulse' : 'text-emerald-600'}>
+                                {src.lastSync}
+                            </span>
+                        </div>
+                    </GridCard>
+                ))}
+
+                {/* Persistent Add Card */}
+                <div
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="col-span-1 border-2 border-dashed border-gray-200 flex flex-col items-center justify-center p-8 text-gray-400 hover:text-black hover:border-black hover:bg-gray-50 transition-colors cursor-pointer bg-white/30 backdrop-blur-sm min-h-[220px] "
+                >
+                    <Plus size={32} />
+                    <span className="mt-4 font-mono text-[10px] uppercase tracking-widest">Add Source</span>
                 </div>
-            )}
+            </div>
+
+            <EcosystemAddSourceModal
+                isOpen={isAddModalOpen}
+                onClose={() => setIsAddModalOpen(false)}
+            />
         </motion.div>
     );
 };
