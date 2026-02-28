@@ -6,6 +6,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import ChatMessage from './ChatMessage';
 import TypingIndicator from './TypingIndicator';
 import ChatInput from './ChatInput';
+import SignalsBanner from './SignalsBanner';
 import { Sparkles, TrendingDown, Package, BarChart3 } from 'lucide-react';
 
 interface ChatInterfaceProps {
@@ -59,8 +60,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             // Clear URL immediately
             setSearchParams({}, { replace: true });
 
-            // Call handleFirstMessage with the query
-            // Using a tiny timeout just ensures state is settled, though shouldn't be strictly necessary
             setTimeout(() => {
                 handleFirstMessage(q);
             }, 10);
@@ -86,8 +85,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             setActiveId(newId);
             setActiveSession(newId);
 
-            // Navigate to the new URL without triggering a full remount (replace to avoid history bloat)
-            navigate(`/dashboard/chat/${newId}`, { replace: true });
+            // Navigate to the new URL without triggering a full remount
+            navigate(`/dashboard/intelligence/${newId}`, { replace: true });
 
             // Send the message using the new ID explicitly
             sendMessage(newId, text);
@@ -115,7 +114,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             {/* Messages Area */}
             <div
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto px-4 md:px-8"
+                className="flex-1 px-4 md:px-8"
             >
                 <AnimatePresence mode="wait">
                     {!hasMessages ? (
@@ -126,8 +125,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.5 }}
-                            className="flex flex-col items-center justify-center min-h-[60vh] max-w-2xl mx-auto text-center"
+                            className="flex flex-col items-center justify-center min-h-[60vh] max-w-4xl mx-auto text-center"
                         >
+                            {/* Signals Banner */}
+                            <div className="w-full mb-8">
+                                <SignalsBanner />
+                            </div>
+
                             {/* Animated Logo */}
                             <motion.div
                                 initial={{ scale: 0.8, opacity: 0 }}
@@ -164,7 +168,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: 0.4 }}
-                                className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-xl"
+                                className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full max-w-2xl"
                             >
                                 {suggestions.map((s, i) => (
                                     <motion.button
@@ -191,8 +195,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                             key="messages"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className="max-w-3xl mx-auto py-8 space-y-6"
+                            className="max-w-5xl mx-auto py-4 space-y-6"
                         >
+                            {/* Compact signals banner at top of conversation */}
+                            <SignalsBanner collapsed />
+
                             {messages.map((msg) => (
                                 <ChatMessage key={msg.id} message={msg} />
                             ))}
@@ -206,12 +213,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             </div>
 
             {/* Sticky Input Bar */}
-            <div className="sticky bottom-0 px-4 md:px-8 pb-6 pt-2 bg-gradient-to-t from-[#FAFAFA] via-[#FAFAFA]/95 to-transparent">
-                <div className="max-w-3xl mx-auto">
+            <div className="sticky bottom-0 px-4 md:px-8 pb-2 pt-4 bg-gradient-to-t from-[#FAFAFA] via-[#FAFAFA]/95 to-transparent">
+                <div className="max-w-5xl mx-auto w-full">
                     <ChatInput onSubmit={handleSendMessage} disabled={isTyping} />
-                    <p className="text-center text-[10px] font-mono text-gray-300 mt-3 tracking-wider">
-                        AI AGENT UNDER DEVELOPMENT · RESPONSES ARE PLACEHOLDER
-                    </p>
                 </div>
             </div>
         </div>

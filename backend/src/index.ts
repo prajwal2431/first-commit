@@ -16,6 +16,9 @@ import dataSourcesRouter from './routes/dataSources';
 import dashboardRouter from './routes/dashboard';
 import analysisRouter from './routes/analysis';
 import chatRouter from './routes/chat';
+import signalsRouter from './routes/signals';
+import settingsRouter from './routes/settings';
+import notificationsRouter from './routes/notifications';
 import debugDbRouter from './routes/debugDb';
 import { requireAuth } from './middleware/auth';
 import './models';
@@ -36,6 +39,9 @@ app.use('/api/data-sources', requireAuth, dataSourcesRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/analysis', requireAuth, analysisRouter);
 app.use('/api/chat', requireAuth, chatRouter);
+app.use('/api/signals', requireAuth, signalsRouter);
+app.use('/api/settings', requireAuth, settingsRouter);
+app.use('/api/notifications', requireAuth, notificationsRouter);
 
 // Debug (unprotected for dev)
 app.use('/api/debug/db', debugDbRouter);

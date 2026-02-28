@@ -101,18 +101,19 @@ export const useSessionStore = create<SessionState>()(
 
             deleteSession: async (id) => {
                 try {
-                    // Try to delete on backend if it exists there, but don't block local delete
-                    request(`/analysis/sessions/${id}`, {
+                    // Always cleanly await the backend deletion to ensure it's removed from database
+                    await request(`/analysis/sessions/${id}`, {
                         method: 'DELETE',
-                    }).catch(() => { });
-
-                    set((state) => ({
-                        sessions: state.sessions.filter((s) => s.id !== id),
-                        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-                    }));
+                    });
                 } catch (error) {
-                    console.error('Failed to delete session', error);
+                    console.error('Backend deletion failed or session only existed locally', error);
                 }
+
+                // After confirmation from backend (or if it was only local), delete from local cache
+                set((state) => ({
+                    sessions: state.sessions.filter((s) => s.id !== id),
+                    activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+                }));
             },
         }),
         {

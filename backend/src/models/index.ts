@@ -14,3 +14,4 @@ export { RetailRecord, IRetailRecord } from './RetailRecord';
 export { RawIngestionRecord, IRawIngestionRecord } from './RawIngestionRecord';
 export { DashboardState, IDashboardState } from './DashboardState';
 export { AnalysisSession, IAnalysisSession } from './AnalysisSession';
+export { OrgSettings, IOrgSettings } from './OrgSettings';

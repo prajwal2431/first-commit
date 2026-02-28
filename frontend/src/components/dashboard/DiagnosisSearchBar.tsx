@@ -9,7 +9,7 @@ const DiagnosisSearchBar: React.FC = () => {
     const handleDiagnose = (e?: React.FormEvent) => {
         e?.preventDefault();
         if (!query.trim()) return;
-        navigate(`/dashboard/chat?q=${encodeURIComponent(query.trim())}`);
+        navigate(`/dashboard/intelligence?q=${encodeURIComponent(query.trim())}`);
     };
 
     const suggestions = [
@@ -48,7 +48,7 @@ const DiagnosisSearchBar: React.FC = () => {
                 {suggestions.map((s, i) => (
                     <button
                         key={i}
-                        onClick={() => navigate(`/dashboard/chat?q=${encodeURIComponent(s)}`)}
+                        onClick={() => navigate(`/dashboard/intelligence?q=${encodeURIComponent(s)}`)}
                         className="text-xs font-mono text-gray-500 hover:text-black hover:bg-gray-100 px-2 py-1 transition-colors border border-gray-200"
                     >
                         {s.length > 30 ? s.substring(0, 30) + '...' : s}

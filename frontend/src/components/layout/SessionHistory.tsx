@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { MoreHorizontal, Edit2, Trash2 } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,8 @@ const SessionHistory: React.FC = () => {
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
     const [editTitle, setEditTitle] = useState<string>('');
+    const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         fetchSessions();
@@ -37,12 +40,23 @@ const SessionHistory: React.FC = () => {
         setOpenMenuId(openMenuId === id ? null : id);
     };
 
-    const handleDelete = (id: string, e: React.MouseEvent) => {
+    const handleDeleteClick = (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        deleteSession(id);
+        setSessionToDelete(id);
         setOpenMenuId(null);
-        if (activeSessionId === id) {
-            navigate('/dashboard/intelligence');
+    };
+
+    const confirmDelete = async () => {
+        if (!sessionToDelete) return;
+        setIsDeleting(true);
+        try {
+            await deleteSession(sessionToDelete);
+            if (activeSessionId === sessionToDelete) {
+                navigate('/dashboard/intelligence');
+            }
+        } finally {
+            setIsDeleting(false);
+            setSessionToDelete(null);
         }
     };
 
@@ -71,7 +85,7 @@ const SessionHistory: React.FC = () => {
 
     const handleSessionClick = (id: string) => {
         setActiveSession(id);
-        navigate(`/dashboard/chat/${id}`);
+        navigate(`/dashboard/intelligence/${id}`);
     };
 
     if (!isOpen) return null;
@@ -133,7 +147,7 @@ const SessionHistory: React.FC = () => {
                                                 <Edit2 size={12} /> Rename
                                             </button>
                                             <button
-                                                onClick={(e) => handleDelete(sess.id, e)}
+                                                onClick={(e) => handleDeleteClick(sess.id, e)}
                                                 className="px-3 py-2 text-left hover:bg-red-50 text-red-600 flex items-center gap-2"
                                             >
                                                 <Trash2 size={12} /> Delete
@@ -146,6 +160,39 @@ const SessionHistory: React.FC = () => {
                     })}
                 </div>
             </div>
+
+            {sessionToDelete && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white rounded-none shadow-xl w-full max-w-md p-6 border border-gray-200 text-left font-mono animate-in fade-in zoom-in-95 duration-200">
+                        <h2 className="text-xl font-serif italic text-black mb-4">DELETE CHAT?</h2>
+                        <div className="text-xs text-gray-600 mb-6 leading-relaxed tracking-wide uppercase">
+                            <p className="mb-4">
+                                This will delete queries, responses and feedback from your activity, plus any content that you created during this chat.
+                            </p>
+                            <a href="#" onClick={(e) => e.preventDefault()} className="font-medium text-black hover:text-gray-600 hover:underline">
+                                [ Learn more ]
+                            </a>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-4 text-xs tracking-wider uppercase">
+                            <button
+                                onClick={() => setSessionToDelete(null)}
+                                disabled={isDeleting}
+                                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-none transition-colors border border-transparent"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmDelete}
+                                disabled={isDeleting}
+                                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-none transition-colors shadow-sm disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isDeleting ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
         </div>
     );
 };

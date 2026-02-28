@@ -19,11 +19,13 @@ const AppShell: React.FC = () => {
             <motion.main
                 initial={false}
                 animate={{ marginLeft: width }}
-                className="flex-1 relative z-10 w-full min-h-screen overflow-y-auto transition-all duration-300 bg-[#FAFAFA]"
+                className="flex-1 relative z-10 w-full h-screen overflow-hidden flex flex-col transition-all duration-300 bg-[#FAFAFA]"
             >
-                <div className="max-w-[1440px] mx-auto p-4 md:p-8 lg:p-12 pt-8">
-                    <PageHeader />
-                    <Outlet />
+                <PageHeader />
+                <div className="w-full flex-1 flex flex-col p-4 md:px-8 pt-6 pb-0 max-w-[1600px] mx-auto overflow-hidden">
+                    <div id="main-scroll" className="flex-1 w-full overflow-y-auto min-h-0 relative flex flex-col">
+                        <Outlet />
+                    </div>
                 </div>
             </motion.main>
         </div>

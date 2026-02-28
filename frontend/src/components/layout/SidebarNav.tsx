@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MessageSquare, Network, Bot } from 'lucide-react';
+import { MessageSquare, Network } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { cn } from '@/lib/utils';
 
@@ -10,7 +10,6 @@ const SidebarNav: React.FC = () => {
     const navItems = [
         { to: '/dashboard/sources', label: 'Data Sources', icon: Network },
         { to: '/dashboard/intelligence', label: 'Intelligence', icon: MessageSquare },
-        { to: '/dashboard/chat', label: 'Chat', icon: Bot },
     ];
 
     return (

@@ -11,8 +11,7 @@ const ChatPage: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col"
-            style={{ height: 'calc(100vh - 64px)' }}
+            className="flex flex-col min-h-full flex-1"
         >
             <ChatInterface sessionId={sessionId} />
         </motion.div>

@@ -12,7 +12,7 @@ const Sidebar: React.FC = () => {
     const navigate = useNavigate();
 
     const handleNewChat = () => {
-        navigate('/dashboard/chat');
+        navigate('/dashboard/intelligence');
     };
 
     return (

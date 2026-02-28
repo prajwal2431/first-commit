@@ -8,8 +8,8 @@ const LiveSignalsFeed: React.FC = () => {
     const navigate = useNavigate();
     const { liveSignals, hasData } = useDashboardStore();
 
-    const handleAlertClick = (suggestedQuery: string) => {
-        navigate(`/dashboard/chat?q=${encodeURIComponent(suggestedQuery)}`);
+    const handleAlertClick = (signalId: string) => {
+        navigate(`/dashboard/signals/${signalId}`);
     };
 
     if (!hasData || liveSignals.length === 0) {
@@ -50,7 +50,7 @@ const LiveSignalsFeed: React.FC = () => {
                         level={severityToLevel(signal.severity)}
                         msg={signal.title}
                         time={formatTime(signal.detectedAt)}
-                        onClick={() => handleAlertClick(signal.suggestedQuery || signal.title || 'Tell me about this signal')}
+                        onClick={() => handleAlertClick(signal.id)}
                     />
                 ))}
             </div>

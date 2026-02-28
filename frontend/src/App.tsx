@@ -5,10 +5,11 @@ import AppShell from '@/components/layout/AppShell';
 import LandingPage from '@/pages/LandingPage';
 import LoginPage from '@/pages/LoginPage';
 import SignupPage from '@/pages/SignupPage';
-import DashboardPage from '@/pages/DashboardPage';
 import DiagnosisPage from '@/pages/DiagnosisPage';
 import SourcesPage from '@/pages/SourcesPage';
 import ChatPage from '@/pages/ChatPage';
+import SignalInsightPage from '@/pages/SignalInsightPage';
+import SettingsPage from '@/pages/SettingsPage';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, loading } = useAuthStore();
@@ -23,7 +24,7 @@ const GuestRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { token, loading } = useAuthStore();
 
   if (loading) return null;
-  if (token) return <Navigate to="/dashboard" replace />;
+  if (token) return <Navigate to="/dashboard/intelligence" replace />;
 
   return <>{children}</>;
 };
@@ -50,12 +51,17 @@ const App: React.FC = () => {
           </ProtectedRoute>
         }
       >
-        <Route path="/dashboard" element={<Navigate to="/dashboard/sources" replace />} />
+        <Route path="/dashboard" element={<Navigate to="/dashboard/intelligence" replace />} />
         <Route path="/dashboard/sources" element={<SourcesPage />} />
-        <Route path="/dashboard/intelligence" element={<DashboardPage />} />
+        <Route path="/dashboard/intelligence" element={<ChatPage />} />
+        <Route path="/dashboard/intelligence/:sessionId" element={<ChatPage />} />
+        <Route path="/dashboard/signals/:signalId" element={<SignalInsightPage />} />
+        <Route path="/dashboard/settings" element={<SettingsPage />} />
         <Route path="/dashboard/diagnosis/:id" element={<DiagnosisPage />} />
-        <Route path="/dashboard/chat" element={<ChatPage />} />
-        <Route path="/dashboard/chat/:sessionId" element={<ChatPage />} />
+
+        {/* Legacy routes → redirect to unified intelligence */}
+        <Route path="/dashboard/chat" element={<Navigate to="/dashboard/intelligence" replace />} />
+        <Route path="/dashboard/chat/:sessionId" element={<Navigate to="/dashboard/intelligence" replace />} />
       </Route>
 
       {/* Fallback */}
