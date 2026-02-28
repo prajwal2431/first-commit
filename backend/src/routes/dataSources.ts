@@ -44,9 +44,10 @@ const upload = multer({
   },
 });
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const list = await DataSource.find()
+    const orgId = req.user?.tenantId ?? 'default';
+    const list = await DataSource.find({ organizationId: orgId })
       .sort({ uploadedAt: -1 })
       .lean();
     res.json(list);
@@ -62,7 +63,8 @@ router.get('/:id/records', async (req: Request, res: Response) => {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid data source ID' });
     }
-    const source = await DataSource.findById(id).lean();
+    const orgId = req.user?.tenantId ?? 'default';
+    const source = await DataSource.findOne({ _id: id, organizationId: orgId }).lean();
     if (!source) {
       return res.status(404).json({ message: 'Data source not found' });
     }

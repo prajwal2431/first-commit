@@ -22,6 +22,8 @@ interface DiagnosisState {
     geographicData: GeographicInsight | null;
     chartData: { revenueVsTraffic: Array<{ date: string; revenue: number; traffic: number }> };
 
+    eventSource: EventSource | null;
+
     startDiagnosis: (query: string) => Promise<string>;
     fetchResult: (id: string) => Promise<void>;
     updateProgress: (step: number) => void;
@@ -42,13 +44,16 @@ export const useDiagnosisStore = create<DiagnosisState>((set, get) => ({
     actions: [],
     geographicData: null,
     chartData: { revenueVsTraffic: [] },
+    eventSource: null,
 
     startDiagnosis: async (query) => {
+        get().eventSource?.close();
         set({
             currentQuery: query,
             status: 'analyzing',
             analysisProgress: 0,
             analysisSteps: [],
+            eventSource: null,
         });
 
         try {
@@ -60,10 +65,10 @@ export const useDiagnosisStore = create<DiagnosisState>((set, get) => ({
             const analysisId = data.analysisId;
             set({ diagnosisId: analysisId });
 
-            const token = localStorage.getItem('rca_token');
             const eventSource = new EventSource(
                 `${API_BASE_URL}/analysis/stream/${analysisId}`,
             );
+            set({ eventSource });
 
             eventSource.onmessage = (event) => {
                 try {
@@ -81,17 +86,19 @@ export const useDiagnosisStore = create<DiagnosisState>((set, get) => ({
                         });
                     } else if (payload.type === 'complete') {
                         eventSource.close();
+                        set({ eventSource: null });
                         const result = payload.result;
                         applyResult(set, result);
                     } else if (payload.type === 'error') {
                         eventSource.close();
-                        set({ status: 'error' });
+                        set({ eventSource: null, status: 'error' });
                     }
                 } catch { /* ignore parse errors */ }
             };
 
             eventSource.onerror = () => {
                 eventSource.close();
+                set({ eventSource: null });
                 setTimeout(() => get().fetchResult(analysisId), 1000);
             };
 
@@ -104,14 +111,48 @@ export const useDiagnosisStore = create<DiagnosisState>((set, get) => ({
     },
 
     fetchResult: async (id) => {
+        get().eventSource?.close();
+        set({ status: 'analyzing', diagnosisId: id });
         try {
             const data = await request<any>(`/analysis/result/${id}`);
             if (data.status === 'completed' && data.result) {
                 applyResult(set, data.result);
-            } else if (data.status === 'running') {
-                setTimeout(() => get().fetchResult(id), 2000);
-            } else if (data.status === 'failed') {
-                set({ status: 'error' });
+            } else {
+                const eventSource = new EventSource(
+                    `${API_BASE_URL}/analysis/stream/${id}`,
+                );
+                set({ eventSource });
+
+                eventSource.onmessage = (event) => {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        if (payload.type === 'progress') {
+                            const step = payload.step as AnalysisStep;
+                            set((state) => {
+                                const steps = [...state.analysisSteps];
+                                const idx = steps.findIndex((s) => s.stage === step.stage);
+                                if (idx >= 0) steps[idx] = step;
+                                else steps.push(step);
+
+                                const completedCount = steps.filter((s) => s.status === 'completed').length;
+                                return { analysisSteps: steps, analysisProgress: completedCount };
+                            });
+                        } else if (payload.type === 'complete') {
+                            eventSource.close();
+                            set({ eventSource: null });
+                            const result = payload.result;
+                            applyResult(set, result);
+                        } else if (payload.type === 'error') {
+                            eventSource.close();
+                            set({ eventSource: null, status: 'error' });
+                        }
+                    } catch { /* ignore parse errors */ }
+                };
+
+                eventSource.onerror = () => {
+                    eventSource.close();
+                    set({ eventSource: null });
+                };
             }
         } catch (error) {
             set({ status: 'error' });
@@ -121,18 +162,22 @@ export const useDiagnosisStore = create<DiagnosisState>((set, get) => ({
 
     updateProgress: (step) => set({ analysisProgress: step }),
 
-    reset: () => set({
-        currentQuery: '',
-        diagnosisId: null,
-        status: 'idle',
-        analysisProgress: 0,
-        analysisSteps: [],
-        rootCause: null,
-        impactMetrics: null,
-        actions: [],
-        geographicData: null,
-        chartData: { revenueVsTraffic: [] },
-    }),
+    reset: () => {
+        get().eventSource?.close();
+        set({
+            currentQuery: '',
+            diagnosisId: null,
+            status: 'idle',
+            analysisProgress: 0,
+            analysisSteps: [],
+            rootCause: null,
+            impactMetrics: null,
+            actions: [],
+            geographicData: null,
+            chartData: { revenueVsTraffic: [] },
+            eventSource: null,
+        });
+    },
 }));
 
 function applyResult(set: any, result: any) {

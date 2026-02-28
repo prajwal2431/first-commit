@@ -83,7 +83,9 @@ router.get('/stream/:id', (req: Request, res: Response) => {
   }
   activeStreams.get(id)!.add(res);
 
-  AnalysisSession.findById(id).then((session) => {
+  const orgId = req.user?.tenantId ?? 'default';
+
+  AnalysisSession.findOne({ _id: id, organizationId: orgId }).then((session) => {
     if (session) {
       if (session.status === 'completed' && session.result) {
         res.write(`data: ${JSON.stringify({ type: 'complete', result: session.result })}\n\n`);
@@ -109,7 +111,8 @@ router.get('/stream/:id', (req: Request, res: Response) => {
 
 router.get('/result/:id', async (req: Request, res: Response) => {
   try {
-    const session = await AnalysisSession.findById(req.params.id).lean();
+    const orgId = req.user?.tenantId ?? 'default';
+    const session = await AnalysisSession.findOne({ _id: req.params.id, organizationId: orgId }).lean();
     if (!session) {
       return res.status(404).json({ message: 'Analysis session not found' });
     }

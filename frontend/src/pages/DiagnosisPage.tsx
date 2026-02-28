@@ -33,11 +33,7 @@ const DiagnosisPage: React.FC = () => {
     useEffect(() => {
         if (id) {
             if (status === 'idle') {
-                if (diagnosisId === id) {
-                    fetchResult(id);
-                } else {
-                    startDiagnosis(query);
-                }
+                fetchResult(id);
             }
         }
 

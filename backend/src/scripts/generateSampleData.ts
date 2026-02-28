@@ -13,7 +13,7 @@ import { TrafficRecord } from '../models/TrafficRecord';
 import { DataSource } from '../models/DataSource';
 import { computeAllMonitors } from '../services/monitors/computeAll';
 
-const ORG_ID = 'default';
+const ORG_ID = process.env.TENANT_ID ?? 'prajwal-mind';
 const SOURCE_ID = 'sample-data';
 
 const SKUS = [
