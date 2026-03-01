@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, ChevronDown, Shield } from 'lucide-react';
+import { ChevronDown, Shield, ArrowRight } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useNavigate } from 'react-router-dom';
 
@@ -153,7 +153,7 @@ const SignalGroup: React.FC<{
                                 animate={{ x: 0, opacity: 1 }}
                                 transition={{ delay: idx * 0.05 }}
                                 onClick={() => onSignalClick(item.id)}
-                                className="relative group cursor-pointer flex flex-col gap-2 p-4 bg-white border border-gray-200 rounded-none shadow-sm hover:shadow-md hover:border-violet-300 transition-all duration-300"
+                                className="relative group cursor-pointer flex flex-col gap-1.5 p-4 py-3 bg-white border border-gray-200 rounded-none shadow-sm hover:shadow-md hover:border-violet-300 transition-all duration-300"
                             >
                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gray-100 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-none" />
                                 <div className="flex items-center justify-between">
@@ -163,7 +163,7 @@ const SignalGroup: React.FC<{
                                     </div>
                                     <span className="text-[11px] font-mono text-gray-400 font-bold uppercase">{formatTime(item.detectedAt)}</span>
                                 </div>
-                                <h4 className="text-base font-sans font-bold tracking-tight text-gray-900 line-clamp-2 leading-relaxed group-hover:text-violet-600 transition-colors duration-300">
+                                <h4 className="text-base font-sans font-bold tracking-tight text-gray-900 line-clamp-2 leading-tight group-hover:text-violet-600 transition-colors duration-300">
                                     {item.title}
                                 </h4>
 
@@ -195,10 +195,7 @@ const SignalGroup: React.FC<{
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-1 group-hover:translate-y-0 text-gray-500">
-                                    <span className="text-xs font-mono font-black border border-gray-200 px-2 py-0.5 hover:bg-black hover:text-white hover:border-black transition-colors">INVESTIGATE</span>
-                                    <ExternalLink size={12} />
-                                </div>
+                                <ArrowRight size={14} className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-300 text-violet-500" />
                             </motion.div>
                         ))}
                     </motion.div>
