@@ -12,7 +12,7 @@ const SignalsWidget: React.FC = () => {
 
     if (!hasData || liveSignals.length === 0) return (
         <div className="flex flex-col items-center justify-center p-8 border border-dashed border-gray-100 mt-4 h-64">
-            <p className="text-[10px] font-mono text-gray-400">SIGNALS: SCANNING...</p>
+            <p className="text-xs font-mono text-gray-400">SIGNALS: SCANNING...</p>
             <motion.div
                 animate={{ opacity: [0.3, 1, 0.3] }}
                 transition={{ duration: 2, repeat: Infinity }}
@@ -44,11 +44,12 @@ const SignalsWidget: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
+            <div className="w-full h-px bg-gray-100 mb-6" />
             {/* Header with total impact */}
-            <div className="flex items-center justify-between mb-2 mt-2">
-                <span className="text-[10px] font-mono font-bold tracking-widest text-gray-400 uppercase">Live Signals ({liveSignals.length})</span>
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-mono font-bold tracking-widest text-gray-400 uppercase">Live Signals ({liveSignals.length})</span>
                 {totalImpact > 0 && (
-                    <span className="text-[9px] font-mono font-bold text-red-600 bg-red-50 px-1.5 py-0.5">
+                    <span className="text-xs font-mono font-bold text-red-600 bg-red-50 px-1.5 py-0.5">
                         ₹{formatNum(totalImpact)} IMPACT
                     </span>
                 )}
@@ -69,7 +70,7 @@ const SignalsWidget: React.FC = () => {
                     <button
                         key={f}
                         onClick={() => setFilter(f)}
-                        className={`text-[9px] font-mono font-bold uppercase transition-all border px-2 py-1 rounded-none whitespace-nowrap ${filter === f ? 'bg-black text-white border-black' : 'bg-white text-gray-400 border-gray-100 hover:border-gray-200'}`}
+                        className={`text-xs font-mono font-bold uppercase transition-all border px-2 py-1 rounded-none whitespace-nowrap ${filter === f ? 'bg-black text-white border-black' : 'bg-white text-gray-400 border-gray-100 hover:border-gray-200'}`}
                     >
                         {f}
                     </button>
@@ -124,17 +125,17 @@ const SignalGroup: React.FC<{
     if (items.length === 0) return null;
 
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-gray-100/80">
             <button
                 onClick={onToggle}
-                className="flex items-center justify-between w-full border-b border-gray-100 pb-1 hover:border-gray-300 transition-colors cursor-pointer group"
+                className="flex items-center justify-between w-full pb-1 hover:opacity-80 transition-opacity cursor-pointer group"
             >
                 <div className="flex items-center gap-2">
-                    <span className={`w-1 h-3 ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
-                    <span className="text-[10px] font-mono font-black text-gray-900 tracking-tight">{title} ({items.length})</span>
+                    <span className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
+                    <span className="text-xs font-mono font-black text-gray-900 tracking-wider bg-gray-50 px-2 py-0.5 rounded-sm">{title} ({items.length})</span>
                 </div>
                 <div className="text-gray-400 group-hover:text-black">
-                    {isExpanded ? <ChevronDown size={12} className="rotate-180" /> : <ChevronDown size={12} />}
+                    {isExpanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}
                 </div>
             </button>
             <AnimatePresence initial={false}>
@@ -143,7 +144,7 @@ const SignalGroup: React.FC<{
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="flex flex-col gap-4 overflow-hidden"
+                        className="flex flex-col gap-3 overflow-hidden mt-1 pb-2"
                     >
                         {items.map((item, idx) => (
                             <motion.div
@@ -152,16 +153,17 @@ const SignalGroup: React.FC<{
                                 animate={{ x: 0, opacity: 1 }}
                                 transition={{ delay: idx * 0.05 }}
                                 onClick={() => onSignalClick(item.id)}
-                                className="group cursor-pointer flex flex-col gap-1.5 p-2.5 -mx-2.5 hover:bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-gray-100"
+                                className="relative group cursor-pointer flex flex-col gap-2 p-4 bg-white border border-gray-200 rounded-none shadow-sm hover:shadow-md hover:border-violet-300 transition-all duration-300"
                             >
+                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gray-100 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-none" />
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                                        <div className={`w-1.5 h-1.5 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
-                                        <span className="text-[9px] font-mono font-bold uppercase tracking-tighter">{item.monitorType}</span>
+                                        <div className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
+                                        <span className="text-[11px] font-mono font-bold uppercase tracking-tighter">{item.monitorType}</span>
                                     </div>
-                                    <span className="text-[9px] font-mono text-gray-400 font-bold uppercase">{formatTime(item.detectedAt)}</span>
+                                    <span className="text-[11px] font-mono text-gray-400 font-bold uppercase">{formatTime(item.detectedAt)}</span>
                                 </div>
-                                <h4 className="text-[12px] font-serif font-black italic text-gray-900 line-clamp-2 leading-snug group-hover:text-violet-600 transition-colors duration-300">
+                                <h4 className="text-base font-sans font-bold tracking-tight text-gray-900 line-clamp-2 leading-relaxed group-hover:text-violet-600 transition-colors duration-300">
                                     {item.title}
                                 </h4>
 
@@ -169,18 +171,18 @@ const SignalGroup: React.FC<{
                                 {item.impact && (
                                     <div className="flex items-center gap-2 flex-wrap mt-0.5">
                                         {(item.impact.revenueAtRisk ?? 0) > 0 && (
-                                            <span className="text-[8px] font-mono font-bold bg-red-50 text-red-700 px-1 py-0.5 border border-red-100">
+                                            <span className="text-[10px] font-mono font-bold bg-red-50 text-red-700 px-1 py-0.5 border border-red-100">
                                                 ₹{formatNum(item.impact.revenueAtRisk)} AT RISK
                                             </span>
                                         )}
                                         {(item.impact.marginAtRisk ?? 0) > 0 && (
-                                            <span className="text-[8px] font-mono font-bold bg-amber-50 text-amber-700 px-1 py-0.5 border border-amber-100">
+                                            <span className="text-[10px] font-mono font-bold bg-amber-50 text-amber-700 px-1 py-0.5 border border-amber-100">
                                                 ₹{formatNum(item.impact.marginAtRisk)} MARGIN
                                             </span>
                                         )}
                                         {item.impact.confidence > 0 && (
-                                            <span className="text-[8px] font-mono font-bold bg-gray-50 text-gray-600 px-1 py-0.5 border border-gray-100 flex items-center gap-0.5">
-                                                <Shield size={7} /> {item.impact.confidence}%
+                                            <span className="text-[10px] font-mono font-bold bg-gray-50 text-gray-600 px-1 py-0.5 border border-gray-100 flex items-center gap-0.5">
+                                                <Shield size={10} /> {item.impact.confidence}%
                                             </span>
                                         )}
                                     </div>
@@ -188,14 +190,14 @@ const SignalGroup: React.FC<{
 
                                 {/* Top driver */}
                                 {item.impact?.drivers?.length > 0 && (
-                                    <div className="text-[9px] font-mono text-gray-400 mt-0.5 truncate">
+                                    <div className="text-xs font-mono text-gray-500 mt-1 truncate">
                                         ↳ {item.impact.drivers[0].driver} ({item.impact.drivers[0].contribution}%)
                                     </div>
                                 )}
 
-                                <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-1 group-hover:translate-y-0 text-gray-500">
-                                    <span className="text-[9px] font-mono font-black border border-gray-200 px-1 hover:bg-black hover:text-white hover:border-black transition-colors">INVESTIGATE</span>
-                                    <ExternalLink size={8} />
+                                <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-1 group-hover:translate-y-0 text-gray-500">
+                                    <span className="text-xs font-mono font-black border border-gray-200 px-2 py-0.5 hover:bg-black hover:text-white hover:border-black transition-colors">INVESTIGATE</span>
+                                    <ExternalLink size={12} />
                                 </div>
                             </motion.div>
                         ))}

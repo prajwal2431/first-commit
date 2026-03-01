@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, ArrowRight, Activity, TrendingDown, Package, Truck, BarChart3 } from 'lucide-react';
+import { AlertCircle, TrendingDown, Package, Truck, BarChart3 } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 
@@ -8,7 +8,7 @@ const RevenueAtRiskWidget: React.FC = () => {
 
     if (!hasData || !kpiSummary) return (
         <div className="p-4 border border-dashed border-gray-200 text-center">
-            <p className="text-[10px] font-mono text-gray-400">WAITING FOR REVENUE DATA...</p>
+            <p className="text-xs font-mono text-gray-400">WAITING FOR REVENUE DATA...</p>
         </div>
     );
 
@@ -33,10 +33,10 @@ const RevenueAtRiskWidget: React.FC = () => {
     return (
         <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-bold tracking-widest text-gray-400 uppercase">Revenue Health</span>
+                <span className="text-xs font-mono font-bold tracking-widest text-gray-400 uppercase">Revenue Health</span>
                 {isNegative && (
-                    <span className="flex items-center gap-1 px-1.5 py-0.5 bg-red-100 text-red-700 text-[9px] font-bold rounded-none animate-pulse">
-                        <AlertCircle size={8} /> AT RISK
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 bg-red-100 text-red-700 text-[11px] font-bold rounded-none animate-pulse">
+                        <AlertCircle size={10} /> AT RISK
                     </span>
                 )}
             </div>
@@ -44,22 +44,22 @@ const RevenueAtRiskWidget: React.FC = () => {
             {/* Main Revenue Number */}
             <div className="flex flex-col gap-1">
                 <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-serif italic text-gray-900">
+                    <span className="text-3xl font-sans font-bold tracking-tight text-gray-900">
                         ₹{formatNum(kpiSummary.totalRevenue)}
                     </span>
-                    <span className={`text-[11px] font-mono font-bold ${isNegative ? 'text-red-500' : 'text-green-600'}`}>
+                    <span className={`text-sm font-mono font-bold ${isNegative ? 'text-red-500' : 'text-green-600'}`}>
                         {isNegative ? '↓' : '↑'}{Math.abs(revDelta).toFixed(1)}%
                     </span>
                 </div>
-                <p className="text-[10px] font-mono text-gray-400 uppercase tracking-tighter font-extrabold">Weekly Revenue Performance (WoW)</p>
+                <p className="text-xs font-mono text-gray-400 uppercase tracking-tighter font-extrabold">Weekly Revenue Performance (WoW)</p>
             </div>
 
             {/* Revenue at Risk Block */}
             {rarTotal > 0 && (
                 <div className="bg-red-50/80 border border-red-100 p-3">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-[9px] font-mono font-bold text-red-800 uppercase tracking-wider">Revenue at Risk</span>
-                        <span className="text-lg font-serif italic text-red-700 font-bold">₹{formatNum(rarTotal)}</span>
+                        <span className="text-xs font-mono font-bold text-red-800 uppercase tracking-wider">Revenue at Risk</span>
+                        <span className="text-lg font-sans font-bold tracking-tight text-red-700">₹{formatNum(rarTotal)}</span>
                     </div>
 
                     {/* Decomposition Bar */}
@@ -84,10 +84,10 @@ const RevenueAtRiskWidget: React.FC = () => {
                                         <div key={entry.key} className="flex items-center justify-between">
                                             <div className="flex items-center gap-1.5">
                                                 <div className="w-1.5 h-1.5" style={{ backgroundColor: entry.color }} />
-                                                <Icon size={9} style={{ color: entry.color }} />
-                                                <span className="text-[9px] font-mono text-gray-600 uppercase">{entry.label}</span>
+                                                <Icon size={12} style={{ color: entry.color }} />
+                                                <span className="text-[11px] font-mono text-gray-600 uppercase">{entry.label}</span>
                                             </div>
-                                            <span className="text-[10px] font-mono font-bold text-gray-800">₹{formatNum(entry.value)}</span>
+                                            <span className="text-xs font-mono font-bold text-gray-800">₹{formatNum(entry.value)}</span>
                                         </div>
                                     );
                                 })}
@@ -125,49 +125,31 @@ const RevenueAtRiskWidget: React.FC = () => {
             {/* Metrics Grid */}
             <div className="grid grid-cols-2 gap-px bg-gray-100">
                 <div className="bg-white p-3">
-                    <div className="text-[9px] font-mono text-gray-400 uppercase mb-1">Total Orders</div>
-                    <div className="text-sm font-semibold text-gray-800">{kpiSummary.totalOrders.toLocaleString()}</div>
-                    <div className={`text-[9px] font-mono mt-0.5 ${kpiSummary.ordersDelta >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                    <div className="text-xs font-mono text-gray-400 uppercase mb-1">Total Orders</div>
+                    <div className="text-base font-semibold text-gray-800">{kpiSummary.totalOrders.toLocaleString()}</div>
+                    <div className={`text-[11px] font-mono mt-0.5 ${kpiSummary.ordersDelta >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                         {kpiSummary.ordersDelta >= 0 ? '+' : ''}{kpiSummary.ordersDelta.toLocaleString()} WoW
                     </div>
                 </div>
                 <div className="bg-white p-3">
-                    <div className="text-[9px] font-mono text-gray-400 uppercase mb-1">Avg Order Val</div>
-                    <div className="text-sm font-semibold text-gray-800">₹{kpiSummary.avgOrderValue}</div>
-                    <div className="text-[9px] font-mono text-gray-400 mt-0.5">BASE: ₹{Math.round(kpiSummary.avgOrderValue - kpiSummary.aovDelta)}</div>
+                    <div className="text-xs font-mono text-gray-400 uppercase mb-1">Avg Order Val</div>
+                    <div className="text-base font-semibold text-gray-800">₹{kpiSummary.avgOrderValue}</div>
+                    <div className="text-[11px] font-mono text-gray-400 mt-0.5">BASE: ₹{Math.round(kpiSummary.avgOrderValue - kpiSummary.aovDelta)}</div>
                 </div>
                 <div className="bg-white p-3">
-                    <div className="text-[9px] font-mono text-gray-400 uppercase mb-1">OOS Rate</div>
-                    <div className="text-sm font-semibold text-gray-800">{kpiSummary.oosRate}%</div>
-                    <div className={`text-[9px] font-mono mt-0.5 ${kpiSummary.oosDelta > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    <div className="text-xs font-mono text-gray-400 uppercase mb-1">OOS Rate</div>
+                    <div className="text-base font-semibold text-gray-800">{kpiSummary.oosRate}%</div>
+                    <div className={`text-[11px] font-mono mt-0.5 ${kpiSummary.oosDelta > 0 ? 'text-red-500' : 'text-green-600'}`}>
                         {kpiSummary.oosDelta > 0 ? '+' : ''}{kpiSummary.oosDelta}% WoW
                     </div>
                 </div>
                 <div className="bg-white p-3">
-                    <div className="text-[9px] font-mono text-gray-400 uppercase mb-1">Return Rate</div>
-                    <div className="text-sm font-semibold text-gray-800">{kpiSummary.returnRate}%</div>
-                    <div className={`text-[9px] font-mono mt-0.5 ${kpiSummary.returnDelta > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    <div className="text-xs font-mono text-gray-400 uppercase mb-1">Return Rate</div>
+                    <div className="text-base font-semibold text-gray-800">{kpiSummary.returnRate}%</div>
+                    <div className={`text-[11px] font-mono mt-0.5 ${kpiSummary.returnDelta > 0 ? 'text-red-500' : 'text-green-600'}`}>
                         {kpiSummary.returnDelta > 0 ? '+' : ''}{kpiSummary.returnDelta}% WoW
                     </div>
                 </div>
-            </div>
-
-            {/* Contextual Insight */}
-            <div className="bg-gray-900 p-3 flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-violet-300">
-                    <Activity size={12} />
-                    <span className="text-[10px] font-mono font-bold tracking-tight">AI PREDICTION</span>
-                </div>
-                <p className="text-[11px] text-gray-300 leading-snug font-serif italic">
-                    {rarTotal > 0
-                        ? `₹${formatNum(rarTotal)} revenue at risk detected. Primary driver: ${decompEntries.length > 0 ? decompEntries[0].label.toLowerCase() : 'multiple factors'}. Immediate action recommended to prevent further erosion.`
-                        : isNegative
-                            ? "Revenue trend shows decline. Monitor closely for acceleration."
-                            : "Revenue trend is healthy. Seasonal uplift expected to continue."}
-                </p>
-                <button className="text-[9px] font-mono text-white flex items-center gap-1 mt-1 hover:underline active:scale-95 transition-all">
-                    VIEW REPORT <ArrowRight size={10} />
-                </button>
             </div>
         </div>
     );

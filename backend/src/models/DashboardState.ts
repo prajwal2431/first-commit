@@ -46,6 +46,7 @@ export interface KpiSummary {
   // Revenue-at-Risk decomposition
   revenueAtRiskTotal: number;
   rarDecomposition: RARDecomposition;
+  aiPrediction?: string;
 }
 
 export interface RevenueSeriesPoint {
@@ -61,6 +62,7 @@ export interface IDashboardState extends Document {
   liveSignals: LiveSignal[];
   kpiSummary: KpiSummary;
   lastComputedAt: Date;
+  resolvedSignalIds: string[];
 }
 
 const dashboardStateSchema = new Schema<IDashboardState>(
@@ -70,6 +72,7 @@ const dashboardStateSchema = new Schema<IDashboardState>(
     liveSignals: { type: Schema.Types.Mixed, default: [] },
     kpiSummary: { type: Schema.Types.Mixed, default: {} },
     lastComputedAt: { type: Date, default: Date.now },
+    resolvedSignalIds: { type: [String], default: [] },
   },
   { timestamps: true }
 );

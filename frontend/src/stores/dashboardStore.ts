@@ -46,6 +46,7 @@ interface KpiSummary {
     slaDelta: number;
     revenueAtRiskTotal: number;
     rarDecomposition: RARDecomposition;
+    aiPrediction?: string;
 }
 
 interface RevenueSeriesPoint {

@@ -60,6 +60,12 @@ router.post('/send-signal', async (req: Request, res: Response) => {
         });
 
         if (result.success) {
+            // Mark the signal as resolved so it disappears from the sidebar
+            await DashboardState.updateOne(
+                { organizationId: orgId },
+                { $addToSet: { resolvedSignalIds: signalId } }
+            );
+
             res.json({
                 success: true,
                 message: `Insight sent to ${dept.name} (${dept.email})`,

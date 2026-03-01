@@ -272,7 +272,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                                 </button>
                             </div>
                             <div className="flex items-end justify-between relative z-10">
-                                <span className="text-2xl font-serif italic font-black text-gray-900 leading-none tracking-tight">Real-time Pulse.</span>
+                                <span className="text-2xl font-sans font-black text-gray-900 leading-none tracking-tight">Real-time Pulse.</span>
                                 <div className="flex flex-col items-end">
                                     <div className="flex items-center gap-1.5">
                                         <span className="text-[9px] font-mono font-bold text-emerald-600 uppercase tracking-tighter">Live</span>
@@ -289,7 +289,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                         </div>
 
                         {/* Scrollable Content */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-14">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-4">
                             <section className="animate-in fade-in slide-in-from-right-4 duration-700 delay-150">
                                 <RevenueAtRiskWidget />
                             </section>

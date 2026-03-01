@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft, AlertTriangle, Zap, Clock, Send, ChevronRight,
-    TrendingDown, Package, Truck, BarChart3, Check, ExternalLink, X
+    TrendingDown, Package, Truck, BarChart3, Check, ExternalLink, X, Trash2
 } from 'lucide-react';
 import {
     AreaChart, Area, BarChart as ReBarChart, Bar, LineChart, Line,
@@ -75,6 +75,7 @@ const SignalInsightPage: React.FC = () => {
     const [sendNote, setSendNote] = useState('');
     const [isSending, setIsSending] = useState(false);
     const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     useEffect(() => {
         fetchSettings();
@@ -129,6 +130,18 @@ const SignalInsightPage: React.FC = () => {
     const handleAskAbout = () => {
         if (!insight) return;
         navigate(`/dashboard/intelligence?q=${encodeURIComponent(insight.signal.suggestedQuery)}`);
+    };
+
+    const handleDeleteSignal = async () => {
+        if (!signalId) return;
+        setIsDeleting(true);
+        try {
+            await request(`/signals/${signalId}`, { method: 'DELETE' });
+            navigate('/dashboard/intelligence');
+        } catch (err) {
+            console.error('Failed to dismiss signal', err);
+            setIsDeleting(false);
+        }
     };
 
     if (isLoading) {
@@ -196,14 +209,24 @@ const SignalInsightPage: React.FC = () => {
             transition={{ duration: 0.4 }}
             className="space-y-6 pb-12"
         >
-            {/* Back Button */}
-            <button
-                onClick={() => navigate('/dashboard/intelligence')}
-                className="flex items-center gap-2 text-sm text-gray-500 hover:text-black transition-colors font-mono group"
-            >
-                <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
-                BACK TO INTELLIGENCE
-            </button>
+            {/* Back Button & Actions */}
+            <div className="flex items-center justify-between">
+                <button
+                    onClick={() => navigate('/dashboard/intelligence')}
+                    className="flex items-center gap-2 text-sm text-gray-500 hover:text-black transition-colors font-mono group"
+                >
+                    <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+                    BACK TO INTELLIGENCE
+                </button>
+                <button
+                    onClick={handleDeleteSignal}
+                    disabled={isDeleting}
+                    className="flex items-center gap-2 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 transition-colors font-mono disabled:opacity-50"
+                >
+                    <Trash2 size={16} />
+                    {isDeleting ? 'DISMISSING...' : 'DISMISS SIGNAL'}
+                </button>
+            </div>
 
             {/* Signal Header */}
             <div className={`${sev.bg} border ${sev.border} p-6`}>

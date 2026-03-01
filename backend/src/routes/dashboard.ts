@@ -20,7 +20,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json({
       revenueAtRiskSeries: state.revenueAtRiskSeries,
-      liveSignals: state.liveSignals,
+      liveSignals: state.liveSignals.filter((s: any) => !state.resolvedSignalIds?.includes(s.id)),
       kpiSummary: state.kpiSummary,
       lastComputedAt: state.lastComputedAt,
     });
@@ -35,6 +35,9 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const orgId = req.user?.tenantId ?? 'default';
     await computeAllMonitors(orgId);
     const state = await DashboardState.findOne({ organizationId: orgId }).lean();
+    if (state) {
+      state.liveSignals = state.liveSignals.filter((s: any) => !state.resolvedSignalIds?.includes(s.id));
+    }
     res.json(state ?? { message: 'No data to compute' });
   } catch (err) {
     console.error('Dashboard refresh error:', err);

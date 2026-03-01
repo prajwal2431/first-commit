@@ -5,6 +5,22 @@ import { computeDemandSpikes } from './demandSpikes';
 import { DashboardState, LiveSignal, KpiSummary, RevenueSeriesPoint } from '../../models/DashboardState';
 import { OrgSettings, DEFAULT_THRESHOLDS, SignalThresholds } from '../../models/OrgSettings';
 
+function generateLogicalAIPrediction(kpiSummary: any, liveSignals: any[]): string {
+  // Temporary mock for real AI model predictions using actual backend logic
+  const rarTotal = kpiSummary.revenueAtRiskTotal || 0;
+  const isNegative = (kpiSummary.revenueDeltaPercent || 0) < 0;
+
+  if (rarTotal > 0) {
+    const criticalSignals = liveSignals.filter(s => s.severity === 'critical');
+    const primaryFactor = criticalSignals.length > 0 ? criticalSignals[0].title.toLowerCase() : 'multiple concurrent factors';
+    return `₹${rarTotal.toLocaleString('en-IN')} revenue at risk detected. Primary driver: ${primaryFactor}. The system recommends cross-referencing conversion metrics and deploying immediate corrective measures.`;
+  } else if (isNegative) {
+    return "Revenue trend shows sustained decline compared to baseline. Expected structural weakness in current channel strategies. Re-allocating budget to high-performing drivers is recommended.";
+  } else {
+    return "Operations and revenue are trending positively. The current trajectory indicates continuous growth. Maintain current stock health levels for peak seasonal demands.";
+  }
+}
+
 export async function computeAllMonitors(organizationId: string): Promise<void> {
   console.log(`[monitors] Recomputing all monitors for org=${organizationId}`);
   const start = Date.now();
@@ -58,6 +74,8 @@ export async function computeAllMonitors(organizationId: string): Promise<void> 
     revenueAtRiskTotal: revenue.kpis.revenueAtRiskTotal,
     rarDecomposition: revenue.kpis.rarDecomposition,
   };
+
+  kpiSummary.aiPrediction = generateLogicalAIPrediction(kpiSummary, liveSignals);
 
   await DashboardState.findOneAndUpdate(
     { organizationId },

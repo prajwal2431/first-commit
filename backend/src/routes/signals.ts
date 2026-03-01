@@ -45,4 +45,28 @@ router.get('/:signalId', async (req: Request, res: Response) => {
     }
 });
 
+// DELETE /api/signals/:signalId — dismiss/delete signal
+router.delete('/:signalId', async (req: Request, res: Response) => {
+    try {
+        const orgId = req.user?.tenantId ?? 'default';
+        const { signalId } = req.params;
+
+        // Optionally verify it exists before dismissing
+        const state = await DashboardState.findOne({ organizationId: orgId }).lean();
+        if (!state) {
+            return res.status(404).json({ message: 'No dashboard data found' });
+        }
+
+        await DashboardState.updateOne(
+            { organizationId: orgId },
+            { $addToSet: { resolvedSignalIds: signalId } }
+        );
+
+        res.json({ success: true, message: 'Signal dismissed successfully' });
+    } catch (err) {
+        console.error('Delete signal error:', err);
+        res.status(500).json({ message: 'Failed to dismiss signal' });
+    }
+});
+
 export default router;
