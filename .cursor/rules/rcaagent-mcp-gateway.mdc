@@ -1,0 +1,22 @@
+---
+description: MCP client, AgentCore Gateway, Lambda tools
+globs: RCAagent/**/*.py,RCAagent/mcp/**/*
+alwaysApply: false
+---
+
+# MCP and AgentCore Gateway
+
+## MCP client (LangGraph-compatible)
+- Use **`langchain_mcp_adapters.client.MultiServerMCPClient`** with **streamable_http** transport for AgentCore Gateway.
+- Config shape: `{"agentcore_gateway": {"transport": "streamable_http", "url": GATEWAY_URL, "headers": {"Authorization": "Bearer <token>"}}}`.
+- Get token via Cognito client-credentials (`COGNITO_*` env vars). Use a single function (e.g. `get_streamable_http_mcp_client()`) that returns the client; in entrypoint, **`tools = await mcp_client.get_tools()`**.
+
+## Gateway
+- Gateway exposes Lambda (and other targets) as MCP tools. Naming: **`LambdaTarget___<tool_name>`** (e.g. `LambdaTarget___placeholder_tool`). See [Gateway tool naming](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-tool-naming.html).
+
+## Lambda tool handler (`mcp/lambda/handler.py`)
+- **`lambda_handler(event, context)`**: read **`context.client_context.custom["bedrockAgentCoreToolName"]`**, strip the `LambdaTarget___` prefix to get `tool_name`, then dispatch. Return **`{"statusCode": 200, "body": json.dumps({"result": ...})}`** for success.
+- Add new tools by extending the handler (e.g. branch on `tool_name`) and ensuring Gateway target points to this Lambda. Do not change installed library code.
+
+## References
+- langchain_mcp_adapters: `reference.langchain.com/python/langchain_mcp_adapters/`

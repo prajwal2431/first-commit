@@ -58,3 +58,14 @@ coverage/
 # Environment variables
 *.env.local
 *.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.json
+crash.log
+crash.*.log
+mcp_lambda.zip
+!terraform.tfvars.example

@@ -1,0 +1,21 @@
+---
+description: Data sources, web search, evidence chain, auditability
+globs: RCAagent/**/*.py
+alwaysApply: false
+---
+
+# Data Sources & Auditability
+
+## Web search and external data
+- Use **web search** (or a tool that wraps it) when the agent needs live or external data (e.g. market conditions, recent docs, current APIs). Prefer a dedicated tool exposed via MCP Lambda so the graph can call it.
+
+## Evidence and reasoning
+- For every root cause, keep an **evidence chain**: raw data points that led to the conclusion.
+- Keep a **reasoning log**: chronological log of prompts and responses during RCA, for the "History" tab and debugging.
+- Design tool responses and LLM outputs so they can be stored as structured evidence (e.g. hypothesis id, data snippet, score).
+
+## Confidence and grounding
+- Assign a **confidence score** (0.0–1.0) to RCA summaries. Ground explanations in provided data (e.g. CSV snippets); avoid hallucinations by constraining the model to cite evidence in the prompt.
+
+## Agentic flow
+- **Trigger** → **Context injection** (metadata, SKUs, inventory, etc.) → **Hypothesis generation** (Bedrock) → **Data verification** (agentic SQL/query tools) → **RCA summary** with confidence. Implement or extend tools in `RCAagent` (and MCP Lambda) to support this flow without modifying library code.

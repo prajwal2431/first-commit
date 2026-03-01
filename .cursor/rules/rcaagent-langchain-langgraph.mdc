@@ -1,0 +1,30 @@
+---
+description: LangChain and LangGraph usage in RCAagent
+globs: RCAagent/**/*.py
+alwaysApply: false
+---
+
+# LangChain & LangGraph in RCAagent
+
+## Model
+- Use **`langchain_aws.ChatBedrock`** for Bedrock. Load via `model.load.load_model()`.
+- Prefer inference profile IDs (e.g. `global.anthropic.claude-sonnet-4-5-20250929-v1:0`) per [Bedrock inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html).
+
+## Agent graph
+- The main agent is a **supervisor graph** (LangGraph **StateGraph** in `graph/graph.py`): a supervisor node routes to multiple worker nodes and can invoke workers **in parallel** via the **Send() API** when the task can be split (e.g. multiple verify workers).
+- Use **`graph.graph.create_supervisor_graph(llm, tools)`** to build the compiled graph; workers use **`langchain.agents.create_agent`** internally with partitioned tools (Option B: verifier gets MCP/query tools, hypothesize/summarize get none).
+- Invoke with **`graph.ainvoke({"messages": [HumanMessage(content=prompt)]})`**; result is taken from the last AI message and optionally `reasoning_log`, `evidence`, `recommendations`.
+- Prefer **Chain of Thought** in system prompts; ground responses in data (e.g. CSV snippets) to avoid hallucinations.
+
+## Messages
+- Use **`langchain_core.messages.HumanMessage`** (and `AIMessage` when handling responses).
+- For multi-turn or memory, use checkpoints with **AgentCoreMemorySaver** (see AgentCore rule).
+
+## Tools
+- Define tools with **`@tool`** and clear docstrings (used for tool selection).
+- Combine MCP tools (`await mcp_client.get_tools()`) with local `@tool` functions as needed.
+- Prefer **LangGraph** patterns (state, nodes, edges) when you need explicit control flow beyond a single agent.
+
+## References
+- LangChain AWS: `python.langchain.com/docs/integrations/providers/aws`
+- LangGraph + Bedrock: `aws-samples/langgraph-bedrock-samples`, AWS blogs on multi-agent systems.

@@ -1,0 +1,27 @@
+---
+description: RCAagent context — agentic philosophy, stack, and project layout
+globs: RCAagent/**/*
+alwaysApply: true
+---
+
+# RCAagent — Agentic Root Cause Analysis
+
+## Purpose
+RCAagent is the **agentic** component: autonomous problem solvers that follow **Observe → Hypothesize → Test → Conclude → Recommend**. It is not a simple LLM wrapper.
+
+## Stack (do not change library code)
+- **LangChain** + **LangGraph**: the only agentic framework used in this project; no Strands-Agents or other agent SDKs.
+- **AWS Bedrock**: reasoning (e.g. Claude via `ChatBedrock` from `langchain_aws`).
+- **Bedrock AgentCore** (`bedrock-agentcore`): deployment, entrypoint, memory, gateway.
+- **MCP**: tools exposed via AgentCore Gateway (e.g. **web search** when live data is needed).
+
+## Project layout
+- `RCAagent/src/`: main agent (`main.py`), model loading (`model/load.py`), MCP client (`mcp_client/client.py`).
+- `RCAagent/mcp/lambda/`: Lambda handler for Gateway tools (placeholder + future tools e.g. web search).
+- `RCAagent/terraform/`: AgentCore runtime, Gateway (MCP), Lambda, ECR, memory, Cognito.
+- `RCAagent/.bedrock_agentcore.yaml`: agent config for AgentCore CLI/deployment.
+
+## Conventions
+- Use **structured output** for LLM responses (e.g. `Hypothesis`, `RootCause`).
+- Keep **evidence chain** and **reasoning log** for auditability.
+- In local dev, `LOCAL_DEV=1` uses a dummy MCP client (no Gateway).

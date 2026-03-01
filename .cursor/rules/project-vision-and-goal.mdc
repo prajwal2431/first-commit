@@ -1,0 +1,43 @@
+---
+description: Project vision, end goal, use case, and alignment for all work
+alwaysApply: true
+---
+
+# Agentic Decision Intelligence Platform — Vision & Goal
+
+## What this project is
+An **"Always-On" AI Copilot** for **Indian D2C and MSME retail** (₹10–100 Cr ARR). It moves monitoring from passive dashboards to **proactive, agentic action** with clear ownership.
+
+## Core idea: "Responsibility over Analysis"
+Most BI tools show *what* happened. This platform answers *why* it happened and **who** needs to do **what** to fix it. Output is **owned actions**, not just charts.
+
+## Use case we are solving
+- **Persona:** Ops/Growth lead at an Indian D2C brand (Shopify + marketplaces, WMS/ERP, logistics). Daily firefighting: stockouts, demand spikes, delivery issues, returns.
+- **Need:** "What to do next" faster than analytics dashboards — detect early, diagnose with evidence, recommend actions with impact and owner.
+- **MVP focus:** **Stockout events leading to revenue drops** (detect → diagnose → recommend).
+
+## End goal (decision latency reduction)
+1. **Detect** — Anomalies in revenue (WoW/DoD), SKU stockouts, conversion, operations; severity and status.
+2. **Diagnose** — Agentic root cause analysis: hypotheses → test against data → rank root causes → confidence scores and **evidence chain** (auditability).
+3. **Recommend** — Actionable tasks with **priority**, **suggested/assigned owner**, and link to root cause; optional push to teams (email/task ID).
+
+## Platform scope (6 layers)
+- **Layer 1:** Data intake (Excel, CSV, marketplace exports; optional enterprise DW).
+- **Layer 2:** Normalization & quality (schema mapping, validation).
+- **Layer 3:** Anomaly detection (revenue, stockout, conversion, etc.).
+- **Layer 4:** Agentic RCA core (hypotheses, testing, ranking) — **RCAagent** is the agentic brain (LangGraph + Bedrock + AgentCore).
+- **Layer 5:** Action & orchestration (action types, priority, ownership).
+- **Layer 6:** User interaction (dashboard, chat, real-time SSE).
+
+## Current decisions (do not override)
+- **Backend–RCAagent integration:** Not built yet. Do **not** design or implement backend–RCAagent integration unless the user explicitly asks for it.
+- **Agentic framework:** **RCAagent only**, using **LangChain + LangGraph** for all agentic work. No Strands-Agents or other agent SDKs.
+- **TASKS.md / 7-day plan:** Obsolete. Ignore it for planning or scope; do not reference it as the current roadmap.
+
+## Alignment for future work
+- **Backend/Frontend:** Support the full pipeline (ingest → normalize → detect → analyze → actions) and present results; keep auditability (evidence chain, reasoning log, confidence).
+- **RCAagent:** Implement the agentic RCA (observe → hypothesize → test → conclude → recommend) with LangChain + LangGraph. Do not add or assume backend integration unless the user requests it.
+- **UX:** Action-oriented views; premium, clear dashboard; real-time updates; chat for queries and triggering analysis.
+- **Deferred for MVP:** Full schema-mapping UI, multi-tenant org switching, export PDF/CSV, WhatsApp/voice (phased roadmap).
+
+All changes should stay aligned with: **reduce decision latency**, **responsibility over analysis**, and **auditability first**.

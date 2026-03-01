@@ -1,0 +1,33 @@
+---
+description: Bedrock AgentCore integration — app, gateway, runtime, memory
+globs: RCAagent/**/*.py,RCAagent/**/*.tf,RCAagent/**/*.yaml
+alwaysApply: false
+---
+
+# Bedrock AgentCore Integration
+
+## App entrypoint
+- Use **`BedrockAgentCoreApp()`** from `bedrock_agentcore` and **`@app.entrypoint`** on the async `invoke(payload)` function.
+- Payload shape: `{"prompt": "<user input>"}` (or extend as needed). Return a dict (e.g. `{"result": ...}`).
+- Run locally with **`app.run()`** when `__name__ == "__main__"`.
+
+## Config
+- **`.bedrock_agentcore.yaml`**: defines default agent, `entrypoint` path, `source_path`, `deployment_type: container`, and `is_agentcore_create_with_iac: true`. Do not remove IAC-related fields.
+
+## Environment (runtime)
+- **`GATEWAY_URL`**: AgentCore Gateway URL (MCP). Required when not in `LOCAL_DEV=1`.
+- **`MEMORY_ID`**: For AgentCore memory (optional; use with `AgentCoreMemorySaver` / `AgentCoreMemoryStore` when adding persistence).
+- **Cognito**: `COGNITO_TOKEN_URL`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_SCOPE` for Gateway auth.
+
+## Terraform
+- **`bedrock_agentcore.tf`**: ECR image, MCP Lambda, AgentCore Gateway (protocol MCP), Gateway target (Lambda), IAM roles, Memory + strategies, Agent Runtime (container from ECR), endpoints.
+- Runtime gets **`GATEWAY_URL`** and **`MEMORY_ID`** as env vars. Gateway uses Cognito for inbound auth and invokes the MCP Lambda for tools.
+
+## Memory (LangGraph)
+- **AgentCoreMemorySaver**: checkpoint persistence (messages, graph state).
+- **AgentCoreMemoryStore**: long-term conversational memory and search.
+- Pass **Memory ID** and use `actor_id` / `thread_id` in RunnableConfig when invoking the graph.
+
+## References
+- [AgentCore Memory + LangChain/LangGraph](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-integrate-lang.html)
+- [AgentCore Gateway](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-quick-start.html)
