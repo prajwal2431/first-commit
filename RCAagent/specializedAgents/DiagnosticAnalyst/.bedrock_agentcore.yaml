@@ -1,0 +1,16 @@
+default_agent: DiagnosticAnalyst_Agent
+is_agentcore_create_with_iac: true
+agents:
+  DiagnosticAnalyst_Agent:
+    name: DiagnosticAnalyst_Agent
+    entrypoint: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\specializedAgents\DiagnosticAnalyst\src\main.py
+    deployment_type: container
+    source_path: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\specializedAgents\DiagnosticAnalyst\src
+    aws:
+      account: null
+      region: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    is_generated_by_agentcore_create: true

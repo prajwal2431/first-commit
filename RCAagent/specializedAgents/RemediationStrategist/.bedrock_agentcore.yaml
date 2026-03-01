@@ -1,0 +1,16 @@
+default_agent: RemediationStrategist_Agent
+is_agentcore_create_with_iac: true
+agents:
+  RemediationStrategist_Agent:
+    name: RemediationStrategist_Agent
+    entrypoint: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\specializedAgents\RemediationStrategist\src\main.py
+    deployment_type: container
+    source_path: C:\Users\Priyans Singh\Desktop\AI for Bharat\first-commit\RCAagent\specializedAgents\RemediationStrategist\src
+    aws:
+      account: null
+      region: null
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    is_generated_by_agentcore_create: true
