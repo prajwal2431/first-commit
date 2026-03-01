@@ -16,10 +16,66 @@ export interface SmtpConfig {
     fromEmail: string;
 }
 
+export interface SignalThresholds {
+    // Revenue monitors
+    revenueDropWoW: number;        // % weekly rev drop to fire signal (default 15)
+    revenueDropDoD: number;        // % daily rev drop to fire signal (default 10)
+    trafficUpCvrDown: {
+        trafficDelta: number;      // % traffic up (default 10)
+        revenueDelta: number;      // % revenue down (default -10)
+    };
+    aovCollapse: number;           // % AOV drop (default 15)
+    topSkuRevenueDrop: number;     // % per-SKU rev drop (default 20)
+
+    // Inventory monitors
+    oosRateCritical: number;       // % OOS rate → critical (default 10)
+    oosRateWarning: number;        // % OOS rate → warning (default 5)
+
+    // Operations monitors
+    returnRateWarning: number;     // % (default 5)
+    returnRateCritical: number;    // % (default 15)
+    slaAdherenceWarning: number;   // % below → warning (default 90)
+    slaAdherenceCritical: number;  // % below → critical (default 80)
+    cancelRateWarning: number;     // % (default 3)
+    cancelRateCritical: number;    // % (default 10)
+    rtoRateWarning: number;       // % (default 8)
+    rtoRateCritical: number;      // % (default 15)
+
+    // Demand monitors
+    demandSpikeStdDevMultiplier: number;  // σ multiplier for aggregate spikes (default 2.0)
+    skuSpikeStdDevMultiplier: number;     // σ multiplier for SKU-level spikes (default 2.5)
+    skuSpikeMinMultiplier: number;        // min Nx average units (default 2.0)
+}
+
+export const DEFAULT_THRESHOLDS: SignalThresholds = {
+    revenueDropWoW: 15,
+    revenueDropDoD: 10,
+    trafficUpCvrDown: { trafficDelta: 10, revenueDelta: -10 },
+    aovCollapse: 15,
+    topSkuRevenueDrop: 20,
+
+    oosRateCritical: 10,
+    oosRateWarning: 5,
+
+    returnRateWarning: 5,
+    returnRateCritical: 15,
+    slaAdherenceWarning: 90,
+    slaAdherenceCritical: 80,
+    cancelRateWarning: 3,
+    cancelRateCritical: 10,
+    rtoRateWarning: 8,
+    rtoRateCritical: 15,
+
+    demandSpikeStdDevMultiplier: 2.0,
+    skuSpikeStdDevMultiplier: 2.5,
+    skuSpikeMinMultiplier: 2.0,
+};
+
 export interface IOrgSettings extends Document {
     organizationId: string;
     departments: Department[];
     smtp: SmtpConfig | null;
+    thresholds: SignalThresholds;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -41,9 +97,15 @@ const orgSettingsSchema = new Schema<IOrgSettings>(
                 { id: 'finance', name: 'Finance', email: '' },
                 { id: 'operations', name: 'Operations', email: '' },
                 { id: 'product', name: 'Product', email: '' },
+                { id: 'cx', name: 'Customer Experience', email: '' },
+                { id: 'tech', name: 'Tech', email: '' },
             ],
         },
         smtp: { type: Schema.Types.Mixed, default: null },
+        thresholds: {
+            type: Schema.Types.Mixed,
+            default: () => ({ ...DEFAULT_THRESHOLDS }),
+        },
     },
     { timestamps: true }
 );

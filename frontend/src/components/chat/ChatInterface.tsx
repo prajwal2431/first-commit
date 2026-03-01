@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useChatStore } from '@/stores/chatStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useDashboardStore } from '@/stores/dashboardStore';
 import ChatMessage from './ChatMessage';
 import TypingIndicator from './TypingIndicator';
 import ChatInput from './ChatInput';
@@ -29,6 +30,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const [searchParams, setSearchParams] = useSearchParams();
     const [isPanelOpen, setIsPanelOpen] = useState(true);
+    const { fetchDashboard } = useDashboardStore();
+
+    // Fetch dashboard data on mount and poll every 30 seconds
+    useEffect(() => {
+        fetchDashboard();
+        const interval = setInterval(() => {
+            fetchDashboard();
+        }, 30000);
+        return () => clearInterval(interval);
+    }, [fetchDashboard]);
 
     // Local state to track the *actual* active session ID for this component instance
     const [activeId, setActiveId] = useState<string | null>(sessionId || null);

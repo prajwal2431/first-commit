@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Activity, Zap, ExternalLink, MessageSquareCode, ChevronDown, ChevronUp } from 'lucide-react';
+import { ExternalLink, ChevronDown, Shield } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useNavigate } from 'react-router-dom';
 
@@ -37,17 +37,29 @@ const SignalsWidget: React.FC = () => {
     const highItems = liveSignals.filter(s => s.severity === 'high');
     const mediumItems = liveSignals.filter(s => s.severity === 'medium');
 
+    // Aggregate total impact
+    const totalImpact = liveSignals.reduce((sum, s) => {
+        return sum + (s.impact?.revenueAtRisk ?? s.impact?.marginAtRisk ?? 0);
+    }, 0);
+
     return (
         <div className="flex flex-col h-full">
-            {/* Severity Breakdown Bar */}
-            <div className="flex items-center justify-between mb-4 mt-2">
+            {/* Header with total impact */}
+            <div className="flex items-center justify-between mb-2 mt-2">
                 <span className="text-[10px] font-mono font-bold tracking-widest text-gray-400 uppercase">Live Signals ({liveSignals.length})</span>
-                <div className="flex items-center gap-1">
-                    <div className="h-1.5 w-12 bg-gray-100 overflow-hidden flex">
-                        <div style={{ width: `${(criticalItems.length / liveSignals.length) * 100}%` }} className="h-full bg-red-500" />
-                        <div style={{ width: `${(highItems.length / liveSignals.length) * 100}%` }} className="h-full bg-orange-500" />
-                        <div style={{ width: `${(mediumItems.length / liveSignals.length) * 100}%` }} className="h-full bg-amber-500" />
-                    </div>
+                {totalImpact > 0 && (
+                    <span className="text-[9px] font-mono font-bold text-red-600 bg-red-50 px-1.5 py-0.5">
+                        ₹{formatNum(totalImpact)} IMPACT
+                    </span>
+                )}
+            </div>
+
+            {/* Severity Breakdown Bar */}
+            <div className="flex items-center gap-1 mb-4">
+                <div className="h-1.5 flex-1 bg-gray-100 overflow-hidden flex">
+                    <div style={{ width: `${(criticalItems.length / liveSignals.length) * 100}%` }} className="h-full bg-red-500" />
+                    <div style={{ width: `${(highItems.length / liveSignals.length) * 100}%` }} className="h-full bg-orange-500" />
+                    <div style={{ width: `${(mediumItems.length / liveSignals.length) * 100}%` }} className="h-full bg-amber-500" />
                 </div>
             </div>
 
@@ -152,6 +164,35 @@ const SignalGroup: React.FC<{
                                 <h4 className="text-[12px] font-serif font-black italic text-gray-900 line-clamp-2 leading-snug group-hover:text-violet-600 transition-colors duration-300">
                                     {item.title}
                                 </h4>
+
+                                {/* Impact badges */}
+                                {item.impact && (
+                                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                                        {(item.impact.revenueAtRisk ?? 0) > 0 && (
+                                            <span className="text-[8px] font-mono font-bold bg-red-50 text-red-700 px-1 py-0.5 border border-red-100">
+                                                ₹{formatNum(item.impact.revenueAtRisk)} AT RISK
+                                            </span>
+                                        )}
+                                        {(item.impact.marginAtRisk ?? 0) > 0 && (
+                                            <span className="text-[8px] font-mono font-bold bg-amber-50 text-amber-700 px-1 py-0.5 border border-amber-100">
+                                                ₹{formatNum(item.impact.marginAtRisk)} MARGIN
+                                            </span>
+                                        )}
+                                        {item.impact.confidence > 0 && (
+                                            <span className="text-[8px] font-mono font-bold bg-gray-50 text-gray-600 px-1 py-0.5 border border-gray-100 flex items-center gap-0.5">
+                                                <Shield size={7} /> {item.impact.confidence}%
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Top driver */}
+                                {item.impact?.drivers?.length > 0 && (
+                                    <div className="text-[9px] font-mono text-gray-400 mt-0.5 truncate">
+                                        ↳ {item.impact.drivers[0].driver} ({item.impact.drivers[0].contribution}%)
+                                    </div>
+                                )}
+
                                 <div className="flex items-center gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-1 group-hover:translate-y-0 text-gray-500">
                                     <span className="text-[9px] font-mono font-black border border-gray-200 px-1 hover:bg-black hover:text-white hover:border-black transition-colors">INVESTIGATE</span>
                                     <ExternalLink size={8} />
@@ -173,6 +214,12 @@ function formatTime(dateStr: string): string {
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
     return `${Math.floor(diff / 86400000)}d`;
-};
+}
+
+function formatNum(n: number): string {
+    if (n >= 100000) return `${(n / 100000).toFixed(1)}L`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+    return n.toFixed(0);
+}
 
 export default SignalsWidget;

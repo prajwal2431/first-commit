@@ -2,6 +2,7 @@ import { InventoryRecord } from '../../models/InventoryRecord';
 import { RetailRecord } from '../../models/RetailRecord';
 import { OrderRecord } from '../../models/OrderRecord';
 import { LiveSignal } from '../../models/DashboardState';
+import { SignalThresholds } from '../../models/OrgSettings';
 import crypto from 'crypto';
 
 interface InventoryKpis {
@@ -14,7 +15,10 @@ export interface InventoryExposureResult {
   kpis: InventoryKpis;
 }
 
-export async function computeInventoryExposure(organizationId: string): Promise<InventoryExposureResult> {
+export async function computeInventoryExposure(
+  organizationId: string,
+  thresholds: SignalThresholds
+): Promise<InventoryExposureResult> {
   const inventoryData = await InventoryRecord.find({ organizationId })
     .sort({ date: -1 })
     .lean();
@@ -28,15 +32,16 @@ export async function computeInventoryExposure(organizationId: string): Promise<
       return { signals: [], kpis: { oosRate: 0, oosDelta: 0 } };
     }
 
-    return computeFromRetailRecords(organizationId, retailInv);
+    return computeFromRetailRecords(organizationId, retailInv, thresholds);
   }
 
-  return computeFromInventoryRecords(organizationId, inventoryData);
+  return computeFromInventoryRecords(organizationId, inventoryData, thresholds);
 }
 
 async function computeFromInventoryRecords(
   organizationId: string,
-  inventoryData: any[]
+  inventoryData: any[],
+  thresholds: SignalThresholds
 ): Promise<InventoryExposureResult> {
   const signals: LiveSignal[] = [];
 
@@ -67,6 +72,7 @@ async function computeFromInventoryRecords(
 
     for (const oos of oosSkus) {
       if (demandSkus.has(oos.sku)) {
+        const demandInfo = demandSkus.get(oos.sku);
         signals.push({
           id: crypto.randomUUID(),
           severity: 'critical',
@@ -76,24 +82,45 @@ async function computeFromInventoryRecords(
           suggestedQuery: `Why is ${oos.sku} out of stock in ${oos.location}?`,
           evidenceSnippet: `SKU ${oos.sku}: 0 units at ${oos.location}, active demand detected`,
           detectedAt: new Date(),
+          impact: {
+            revenueAtRisk: demandInfo?.estimatedDailyRev ? Math.round(demandInfo.estimatedDailyRev * 7) : undefined,
+            unitsAtRisk: demandInfo?.totalQty,
+            confidence: 85,
+            drivers: [
+              { driver: `OOS at ${oos.location}`, contribution: 70 },
+              { driver: 'Demand exceeds supply', contribution: 30 },
+            ],
+          },
         });
       }
     }
 
+    // Use threshold for severity determination
     if (signals.length === 0 && oosSkus.length > 0) {
+      const severity = oosRate > thresholds.oosRateCritical ? 'critical'
+        : oosRate > thresholds.oosRateWarning ? 'high'
+          : 'medium';
       signals.push({
         id: crypto.randomUUID(),
-        severity: oosRate > 10 ? 'high' : 'medium',
+        severity,
         monitorType: 'inventory',
         title: `${new Set(oosSkus.map((r: any) => r.sku)).size} SKUs out of stock`,
         description: `OOS rate: ${oosRate.toFixed(1)}% across ${new Set(oosSkus.map((r: any) => r.location)).size} locations`,
         suggestedQuery: 'Which SKUs are out of stock and what is the revenue impact?',
         evidenceSnippet: `${new Set(oosSkus.map((r: any) => r.sku)).size} of ${totalSkus} SKUs at zero inventory`,
         detectedAt: new Date(),
+        impact: {
+          confidence: 75,
+          drivers: [
+            { driver: 'Multiple SKUs at zero stock', contribution: 80 },
+            { driver: 'Replenishment lag', contribution: 20 },
+          ],
+        },
       });
     }
   }
 
+  // Demand-inventory mismatch detection
   const locationMap = new Map<string, number>();
   for (const r of latestInventory) {
     locationMap.set(r.location, (locationMap.get(r.location) ?? 0) + r.available_qty);
@@ -101,7 +128,7 @@ async function computeFromInventoryRecords(
 
   const ordersByRegion = await OrderRecord.aggregate([
     { $match: { organizationId } },
-    { $group: { _id: '$region', totalUnits: { $sum: '$quantity' } } },
+    { $group: { _id: '$region', totalUnits: { $sum: '$quantity' }, totalRev: { $sum: '$revenue' } } },
     { $sort: { totalUnits: -1 } },
     { $limit: 5 },
   ]);
@@ -118,6 +145,15 @@ async function computeFromInventoryRecords(
         suggestedQuery: `Should we transfer inventory to ${region._id}?`,
         evidenceSnippet: `${region.totalUnits} units ordered from ${region._id} but 0 units stocked there`,
         detectedAt: new Date(),
+        impact: {
+          revenueAtRisk: Math.round(region.totalRev * 0.4),
+          unitsAtRisk: region.totalUnits,
+          confidence: 80,
+          drivers: [
+            { driver: `Stock absent at ${region._id}`, contribution: 60 },
+            { driver: 'Distribution imbalance', contribution: 40 },
+          ],
+        },
       });
     }
   }
@@ -133,7 +169,8 @@ async function computeFromInventoryRecords(
 
 async function computeFromRetailRecords(
   organizationId: string,
-  retailData: any[]
+  retailData: any[],
+  thresholds: SignalThresholds
 ): Promise<InventoryExposureResult> {
   const signals: LiveSignal[] = [];
 
@@ -159,6 +196,15 @@ async function computeFromRetailRecords(
           suggestedQuery: `What is the revenue impact of ${oos.sku} being out of stock?`,
           evidenceSnippet: `${oos.sku}: 0 inventory, ${oos.units} units in demand`,
           detectedAt: new Date(),
+          impact: {
+            revenueAtRisk: Math.round(oos.revenue * 3),
+            unitsAtRisk: oos.units * 3,
+            confidence: 70,
+            drivers: [
+              { driver: `${oos.sku} stockout`, contribution: 80 },
+              { driver: 'Demand continues during OOS', contribution: 20 },
+            ],
+          },
         });
       }
     }
@@ -173,7 +219,9 @@ async function computeFromRetailRecords(
   };
 }
 
-async function getHighDemandSkus(organizationId: string): Promise<Set<string>> {
+async function getHighDemandSkus(
+  organizationId: string
+): Promise<Map<string, { totalQty: number; estimatedDailyRev: number }>> {
   const recentOrders = await OrderRecord.aggregate([
     { $match: { organizationId } },
     { $group: { _id: '$sku', totalQty: { $sum: '$quantity' }, totalRev: { $sum: '$revenue' } } },
@@ -188,8 +236,16 @@ async function getHighDemandSkus(organizationId: string): Promise<Set<string>> {
     { $limit: 50 },
   ]);
 
-  const set = new Set<string>();
-  recentOrders.forEach((r: any) => set.add(r._id));
-  recentRetail.forEach((r: any) => set.add(r._id));
-  return set;
+  const map = new Map<string, { totalQty: number; estimatedDailyRev: number }>();
+  recentOrders.forEach((r: any) => map.set(r._id, { totalQty: r.totalQty, estimatedDailyRev: r.totalRev / 14 }));
+  recentRetail.forEach((r: any) => {
+    const existing = map.get(r._id);
+    if (existing) {
+      existing.totalQty += r.totalUnits;
+      existing.estimatedDailyRev += r.totalRev / 14;
+    } else {
+      map.set(r._id, { totalQty: r.totalUnits, estimatedDailyRev: r.totalRev / 14 });
+    }
+  });
+  return map;
 }

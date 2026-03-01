@@ -1,5 +1,14 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
+export interface SignalImpact {
+  revenueAtRisk?: number;
+  marginAtRisk?: number;
+  unitsAtRisk?: number;
+  ordersAtRisk?: number;
+  confidence: number; // 0-100
+  drivers: Array<{ driver: string; contribution: number }>;
+}
+
 export interface LiveSignal {
   id: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
@@ -9,6 +18,15 @@ export interface LiveSignal {
   suggestedQuery: string;
   evidenceSnippet: string;
   detectedAt: Date;
+  impact?: SignalImpact;
+}
+
+export interface RARDecomposition {
+  inventoryLeak: number;
+  conversionLeak: number;
+  opsLeak: number;
+  channelMixLeak: number;
+  explainedBySeason: number;
 }
 
 export interface KpiSummary {
@@ -25,6 +43,9 @@ export interface KpiSummary {
   returnDelta: number;
   slaAdherence: number;
   slaDelta: number;
+  // Revenue-at-Risk decomposition
+  revenueAtRiskTotal: number;
+  rarDecomposition: RARDecomposition;
 }
 
 export interface RevenueSeriesPoint {

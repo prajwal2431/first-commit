@@ -2,6 +2,7 @@ import { RetailRecord } from '../../models/RetailRecord';
 import { OrderRecord } from '../../models/OrderRecord';
 import { WeatherRecord } from '../../models/WeatherRecord';
 import { LiveSignal } from '../../models/DashboardState';
+import { SignalThresholds } from '../../models/OrgSettings';
 import festivalCalendar from '../../data/festival_calendar.json';
 import crypto from 'crypto';
 
@@ -27,7 +28,10 @@ function isFestivalWeek(dateStr: string): FestivalEntry | null {
   return null;
 }
 
-export async function computeDemandSpikes(organizationId: string): Promise<DemandSpikesResult> {
+export async function computeDemandSpikes(
+  organizationId: string,
+  thresholds: SignalThresholds
+): Promise<DemandSpikesResult> {
   const signals: LiveSignal[] = [];
 
   const retailData = await RetailRecord.find({ organizationId })
@@ -75,7 +79,8 @@ export async function computeDemandSpikes(organizationId: string): Promise<Deman
   const mean = values.reduce((s, v) => s + v, 0) / values.length;
   const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
   const stddev = Math.sqrt(variance);
-  const threshold = mean + 2 * stddev;
+  // Use configurable threshold multiplier
+  const threshold = mean + thresholds.demandSpikeStdDevMultiplier * stddev;
 
   const weatherData = await WeatherRecord.find({ organizationId }).lean();
   const weatherByDate = new Map<string, any[]>();
@@ -91,11 +96,13 @@ export async function computeDemandSpikes(organizationId: string): Promise<Deman
     const spikePercent = mean > 0 ? ((units - mean) / mean) * 100 : 0;
     let classification = 'organic';
     let context = '';
+    const drivers: Array<{ driver: string; contribution: number }> = [];
 
     const festival = isFestivalWeek(date);
     if (festival && festival.intensity >= 3) {
       classification = 'festival-driven';
       context = `Near ${festival.name} (intensity ${festival.intensity}/5)`;
+      drivers.push({ driver: `Festival: ${festival.name}`, contribution: 60 });
     }
 
     const dayWeather = weatherByDate.get(date);
@@ -109,16 +116,35 @@ export async function computeDemandSpikes(organizationId: string): Promise<Deman
         : avgTemp;
 
       if (Math.abs(avgTemp - prevAvgTemp) > 5) {
-        classification = classification === 'festival-driven' ? 'festival-driven' : 'weather-driven';
+        if (classification === 'organic') classification = 'weather-driven';
         context += ` Temperature shift: ${prevAvgTemp.toFixed(0)}°C → ${avgTemp.toFixed(0)}°C`;
+        drivers.push({ driver: `Temperature shift (${prevAvgTemp.toFixed(0)}→${avgTemp.toFixed(0)}°C)`, contribution: 30 });
       }
 
       const totalRain = dayWeather.reduce((s, w) => s + w.rainfall_mm, 0);
       if (totalRain > 20) {
         if (classification === 'organic') classification = 'weather-driven';
         context += ` Heavy rainfall: ${totalRain.toFixed(0)}mm`;
+        drivers.push({ driver: `Heavy rainfall (${totalRain.toFixed(0)}mm)`, contribution: 25 });
       }
     }
+
+    if (classification === 'organic') {
+      drivers.push(
+        { driver: 'Organic demand surge', contribution: 50 },
+        { driver: 'Possible influencer / campaign', contribution: 30 },
+        { driver: 'Category trend', contribution: 20 },
+      );
+    }
+
+    // Fill up to 100%
+    const totalContrib = drivers.reduce((s, d) => s + d.contribution, 0);
+    if (totalContrib < 100 && drivers.length > 0) {
+      drivers[0].contribution += (100 - totalContrib);
+    }
+
+    const dayRevenue = dailyRevenue.get(date) ?? 0;
+    const confidence = classification !== 'organic' ? 85 : 60;
 
     signals.push({
       id: crypto.randomUUID(),
@@ -129,18 +155,25 @@ export async function computeDemandSpikes(organizationId: string): Promise<Deman
       suggestedQuery: `What is driving the demand spike on ${date}?`,
       evidenceSnippet: `Units: ${units} (avg: ${mean.toFixed(0)}, threshold: ${threshold.toFixed(0)}). Type: ${classification}`,
       detectedAt: new Date(),
+      impact: {
+        revenueAtRisk: dayRevenue > 0 ? Math.round(dayRevenue * 0.2) : undefined, // 20% at risk if can't fulfill
+        unitsAtRisk: units - Math.round(mean),
+        confidence,
+        drivers,
+      },
     });
   }
 
+  // ─── SKU-level spikes ──────────────────────────────────────────────
   for (const [sku, dailyMap] of skuDailyUnits) {
     const skuValues = Array.from(dailyMap.values());
     if (skuValues.length < 5) continue;
     const skuMean = skuValues.reduce((s, v) => s + v, 0) / skuValues.length;
     const skuStd = Math.sqrt(skuValues.reduce((s, v) => s + (v - skuMean) ** 2, 0) / skuValues.length);
-    const skuThreshold = skuMean + 2.5 * skuStd;
+    const skuThreshold = skuMean + thresholds.skuSpikeStdDevMultiplier * skuStd;
 
     const lastDay = Array.from(dailyMap.entries()).sort(([a], [b]) => b.localeCompare(a))[0];
-    if (lastDay && lastDay[1] > skuThreshold && lastDay[1] > skuMean * 2) {
+    if (lastDay && lastDay[1] > skuThreshold && lastDay[1] > skuMean * thresholds.skuSpikeMinMultiplier) {
       signals.push({
         id: crypto.randomUUID(),
         severity: 'high',
@@ -150,6 +183,14 @@ export async function computeDemandSpikes(organizationId: string): Promise<Deman
         suggestedQuery: `Why is demand spiking for ${sku}?`,
         evidenceSnippet: `SKU ${sku}: ${lastDay[1]} units (avg: ${skuMean.toFixed(0)})`,
         detectedAt: new Date(),
+        impact: {
+          unitsAtRisk: lastDay[1] - Math.round(skuMean),
+          confidence: 70,
+          drivers: [
+            { driver: `${sku} demand surge`, contribution: 70 },
+            { driver: 'Category trend correlation', contribution: 30 },
+          ],
+        },
       });
     }
   }

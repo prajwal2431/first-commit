@@ -3,16 +3,35 @@ import { computeInventoryExposure } from './inventoryExposure';
 import { computeOperationalBreakdowns } from './operationalBreakdowns';
 import { computeDemandSpikes } from './demandSpikes';
 import { DashboardState, LiveSignal, KpiSummary, RevenueSeriesPoint } from '../../models/DashboardState';
+import { OrgSettings, DEFAULT_THRESHOLDS, SignalThresholds } from '../../models/OrgSettings';
 
 export async function computeAllMonitors(organizationId: string): Promise<void> {
   console.log(`[monitors] Recomputing all monitors for org=${organizationId}`);
   const start = Date.now();
 
+  // Load org-specific thresholds (fall back to defaults)
+  let thresholds: SignalThresholds = { ...DEFAULT_THRESHOLDS };
+  try {
+    const settings = await OrgSettings.findOne({ organizationId }).lean();
+    if (settings?.thresholds) {
+      thresholds = {
+        ...DEFAULT_THRESHOLDS,
+        ...settings.thresholds,
+        trafficUpCvrDown: {
+          ...DEFAULT_THRESHOLDS.trafficUpCvrDown,
+          ...(settings.thresholds as any).trafficUpCvrDown,
+        },
+      };
+    }
+  } catch (err) {
+    console.warn('[monitors] Could not load org thresholds, using defaults:', err);
+  }
+
   const [revenue, inventory, ops, demand] = await Promise.all([
-    computeRevenueAtRisk(organizationId),
-    computeInventoryExposure(organizationId),
-    computeOperationalBreakdowns(organizationId),
-    computeDemandSpikes(organizationId),
+    computeRevenueAtRisk(organizationId, thresholds),
+    computeInventoryExposure(organizationId, thresholds),
+    computeOperationalBreakdowns(organizationId, thresholds),
+    computeDemandSpikes(organizationId, thresholds),
   ]);
 
   const liveSignals: LiveSignal[] = [
@@ -36,6 +55,8 @@ export async function computeAllMonitors(organizationId: string): Promise<void> 
     returnDelta: ops.kpis.returnDelta,
     slaAdherence: ops.kpis.slaAdherence,
     slaDelta: ops.kpis.slaDelta,
+    revenueAtRiskTotal: revenue.kpis.revenueAtRiskTotal,
+    rarDecomposition: revenue.kpis.rarDecomposition,
   };
 
   await DashboardState.findOneAndUpdate(

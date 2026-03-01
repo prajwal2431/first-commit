@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { request } from '@/services/api/client';
 
+interface SignalImpact {
+    revenueAtRisk?: number;
+    marginAtRisk?: number;
+    unitsAtRisk?: number;
+    ordersAtRisk?: number;
+    confidence: number;
+    drivers: Array<{ driver: string; contribution: number }>;
+}
+
 interface LiveSignal {
     id: string;
     severity: 'critical' | 'high' | 'medium' | 'low';
@@ -10,6 +19,15 @@ interface LiveSignal {
     suggestedQuery: string;
     evidenceSnippet: string;
     detectedAt: string;
+    impact?: SignalImpact;
+}
+
+interface RARDecomposition {
+    inventoryLeak: number;
+    conversionLeak: number;
+    opsLeak: number;
+    channelMixLeak: number;
+    explainedBySeason: number;
 }
 
 interface KpiSummary {
@@ -26,6 +44,8 @@ interface KpiSummary {
     returnDelta: number;
     slaAdherence: number;
     slaDelta: number;
+    revenueAtRiskTotal: number;
+    rarDecomposition: RARDecomposition;
 }
 
 interface RevenueSeriesPoint {
