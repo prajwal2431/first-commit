@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ChatMessage } from '@/types';
+import { tenantStorage } from './tenantStorage';
+import { request } from '@/services/api/client';
 
 interface ChatState {
     messagesBySession: Record<string, ChatMessage[]>;
@@ -8,17 +10,10 @@ interface ChatState {
     isTyping: boolean;
 
     setActiveSession: (sessionId: string | null) => void;
-    sendMessage: (sessionId: string, text: string) => void;
-    clearMessages: (sessionId: string) => void;
+    sendMessage: (sessionId: string, text: string) => Promise<void>;
+    loadMessages: (sessionId: string) => Promise<void>;
+    clearMessages: () => void;
 }
-
-const HARDCODED_RESPONSES = [
-    "🤖 The AI agent is not ready yet. We're working hard on bringing intelligence to this chat. Stay tuned!",
-    "⚙️ Agent is currently offline. This feature is under active development — check back soon!",
-    "🚧 Our AI assistant is being built. For now, please use the Intelligence page to run diagnoses.",
-];
-
-let responseIndex = 0;
 
 export const useChatStore = create<ChatState>()(
     persist(
@@ -29,7 +24,24 @@ export const useChatStore = create<ChatState>()(
 
             setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
 
-            sendMessage: (sessionId: string, text: string) => {
+            loadMessages: async (sessionId: string) => {
+                if (!sessionId) return;
+                try {
+                    const data = await request<any>(`/analysis/result/${sessionId}`);
+                    if (data && data.messages) {
+                        set((state) => ({
+                            messagesBySession: {
+                                ...state.messagesBySession,
+                                [sessionId]: data.messages,
+                            }
+                        }));
+                    }
+                } catch (err) {
+                    console.error('Failed to load chat messages for session', err);
+                }
+            },
+
+            sendMessage: async (sessionId: string, text: string) => {
                 const state = get();
                 const sid = sessionId;
 
@@ -50,37 +62,45 @@ export const useChatStore = create<ChatState>()(
                     isTyping: true
                 });
 
-                // Simulate typing delay, then respond
-                setTimeout(() => {
-                    const latestState = get();
-
-                    const botMsg: ChatMessage = {
-                        id: (Date.now() + 1).toString(),
-                        role: 'assistant',
-                        content: HARDCODED_RESPONSES[responseIndex % HARDCODED_RESPONSES.length],
-                        timestamp: new Date().toISOString(),
-                    };
-                    responseIndex++;
-
-                    const msgsAfterUser = latestState.messagesBySession[sid] || [];
-                    set({
-                        messagesBySession: {
-                            ...latestState.messagesBySession,
-                            [sid]: [...msgsAfterUser, botMsg]
-                        },
-                        isTyping: false
+                try {
+                    const data = await request<any>('/chat/message', {
+                        method: 'POST',
+                        body: JSON.stringify({ message: text, sessionId: sid }),
                     });
-                }, 1500);
+
+                    const latestState = get();
+                    const msgsAfterUser = latestState.messagesBySession[sid] || [];
+
+                    if (data && data.response) {
+                        const botMsg: ChatMessage = {
+                            id: (Date.now() + 1).toString(),
+                            role: 'assistant',
+                            content: data.response,
+                            timestamp: new Date().toISOString(),
+                        };
+
+                        set({
+                            messagesBySession: {
+                                ...latestState.messagesBySession,
+                                [sid]: [...msgsAfterUser, botMsg]
+                            },
+                        });
+                    }
+                } catch (err) {
+                    console.error('Failed to send message', err);
+                } finally {
+                    set({ isTyping: false });
+                }
             },
 
-            clearMessages: (sessionId: string) => {
-                // We keep the history in messagesBySession, we just clear typing state
+            clearMessages: () => {
                 set({ isTyping: false });
             },
         }),
         {
             name: 'chat-storage',
             partialize: (state) => ({ messagesBySession: state.messagesBySession }),
+            storage: createJSONStorage(() => tenantStorage),
         }
     )
 );

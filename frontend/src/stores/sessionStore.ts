@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import { request } from '@/services/api/client';
 import type { Session } from '@/types';
+import { tenantStorage } from './tenantStorage';
 
 interface SessionState {
     sessions: Session[];
@@ -121,6 +122,7 @@ export const useSessionStore = create<SessionState>()(
             partialize: (state) => ({
                 sessions: state.sessions.filter(s => !s.id.includes('dummy')) // Keep all valid sessions
             }),
+            storage: createJSONStorage(() => tenantStorage),
         }
     )
 );

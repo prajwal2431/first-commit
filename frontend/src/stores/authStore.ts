@@ -74,6 +74,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('rca_token');
     set({ token: null, user: null });
+    window.location.href = '/';
   },
 
   loadSession: async () => {

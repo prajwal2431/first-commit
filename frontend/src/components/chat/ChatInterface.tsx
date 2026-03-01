@@ -44,6 +44,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             initialQuerySent.current = true; // Prevent ?q= logic when viewing history
             setActiveId(sessionId);
             setActiveSession(sessionId);
+            useChatStore.getState().loadMessages(sessionId);
         } else {
             // New Session Setup
             hasCreatedSession.current = false;

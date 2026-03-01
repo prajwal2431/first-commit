@@ -48,7 +48,7 @@ export interface AnalysisResultData {
   } | null;
   charts: {
     revenueVsTraffic: Array<{ date: string; revenue: number; traffic: number }>;
-    externalFactors: Array<{ time: string; [key: string]: unknown }>;
+    externalFactors: Array<{ time: string;[key: string]: unknown }>;
   };
   memoMarkdown: string;
 }
@@ -63,6 +63,12 @@ export interface IAnalysisSession extends Document {
   startedAt: Date;
   completedAt?: Date;
   errorMessage?: string;
+  messages?: Array<{
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: Date;
+  }>;
 }
 
 const analysisSessionSchema = new Schema<IAnalysisSession>(
@@ -80,6 +86,17 @@ const analysisSessionSchema = new Schema<IAnalysisSession>(
     startedAt: { type: Date, default: Date.now },
     completedAt: Date,
     errorMessage: String,
+    messages: {
+      type: [
+        {
+          id: String,
+          role: { type: String, enum: ['user', 'assistant'] },
+          content: String,
+          timestamp: Date,
+        }
+      ],
+      default: []
+    }
   },
   { timestamps: true }
 );

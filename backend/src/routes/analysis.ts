@@ -123,6 +123,7 @@ router.get('/result/:id', async (req: Request, res: Response) => {
       status: session.status,
       steps: session.steps,
       result: session.result ?? null,
+      messages: session.messages || [],
       startedAt: session.startedAt,
       completedAt: session.completedAt,
       errorMessage: session.errorMessage,

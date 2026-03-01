@@ -18,71 +18,106 @@ router.post('/message', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Message is required' });
     }
 
-    const lowerMsg = message.toLowerCase();
+    // Try to find an existing session, or create one if we don't have it
+    let session = null;
+    if (sessionId) {
+      try {
+        session = await AnalysisSession.findOne({ _id: sessionId, organizationId: orgId });
+      } catch (err) { }
+    }
 
-    if (isAnalysisQuery(lowerMsg)) {
-      const session = await AnalysisSession.create({
+    if (!session) {
+      session = await AnalysisSession.create({
         organizationId: orgId,
         query: message,
         status: 'pending',
+        messages: []
       });
+    }
 
+    if (!session.messages) session.messages = [];
+
+    // Add user message
+    session.messages.push({
+      id: Date.now().toString(),
+      role: 'user' as const,
+      content: message,
+      timestamp: new Date()
+    });
+
+    await session.save();
+
+    const lowerMsg = message.toLowerCase();
+    let responseText = '';
+    let responseType = 'help';
+
+    if (isAnalysisQuery(lowerMsg)) {
       const result = await runFullAnalysis(String(session._id), orgId);
-      const response = generateChatResponse(message, result);
+      responseText = generateChatResponse(message, result);
+      responseType = 'analysis';
+    } else if (isDataQuery(lowerMsg)) {
+      responseText = await handleDataQuery(orgId, lowerMsg);
+      responseType = 'data';
+    } else {
+      const dashboard = await DashboardState.findOne({ organizationId: orgId }).lean();
+      if (dashboard && dashboard.liveSignals.length > 0) {
+        const relevantSignals = dashboard.liveSignals
+          .filter((s: any) => {
+            const title = (s.title || '').toLowerCase();
+            const desc = (s.description || '').toLowerCase();
+            return lowerMsg.split(' ').some((word: string) =>
+              word.length > 3 && (title.includes(word) || desc.includes(word))
+            );
+          })
+          .slice(0, 3);
 
-      return res.json({
-        response,
-        analysisId: session._id,
-        type: 'analysis',
-      });
-    }
+        if (relevantSignals.length > 0) {
+          responseText = [
+            `Based on current monitoring data, here's what I found:`,
+            '',
+            ...relevantSignals.map((s: any) =>
+              `- **[${(s.severity || '').toUpperCase()}]** ${s.title}: ${s.description}`
+            ),
+            '',
+            `Would you like me to run a detailed root cause analysis? Try asking: "${relevantSignals[0]?.suggestedQuery ?? 'Why is this happening?'}"`,
+          ].join('\n');
+          responseType = 'signals';
+        }
+      }
 
-    if (isDataQuery(lowerMsg)) {
-      const response = await handleDataQuery(orgId, lowerMsg);
-      return res.json({ response, type: 'data' });
-    }
-
-    const dashboard = await DashboardState.findOne({ organizationId: orgId }).lean();
-    if (dashboard && dashboard.liveSignals.length > 0) {
-      const relevantSignals = dashboard.liveSignals
-        .filter((s: any) => {
-          const title = (s.title || '').toLowerCase();
-          const desc = (s.description || '').toLowerCase();
-          return lowerMsg.split(' ').some((word: string) =>
-            word.length > 3 && (title.includes(word) || desc.includes(word))
-          );
-        })
-        .slice(0, 3);
-
-      if (relevantSignals.length > 0) {
-        const response = [
-          `Based on current monitoring data, here's what I found:`,
+      if (!responseText) {
+        responseText = [
+          `I can help you understand your business performance. Here are things I can do:`,
           '',
-          ...relevantSignals.map((s: any) =>
-            `- **[${(s.severity || '').toUpperCase()}]** ${s.title}: ${s.description}`
-          ),
+          `- **Analyze anomalies**: "Why is revenue dropping despite high traffic?"`,
+          `- **Check inventory**: "Which SKUs are out of stock?"`,
+          `- **Review operations**: "What is our return rate?"`,
+          `- **Understand trends**: "Show me revenue trends for the last week"`,
           '',
-          `Would you like me to run a detailed root cause analysis? Try asking: "${relevantSignals[0]?.suggestedQuery ?? 'Why is this happening?'}"`,
+          dashboard?.liveSignals?.length
+            ? `I currently see ${dashboard.liveSignals.length} active signals. Ask me about any of them!`
+            : `Upload data through the Sources page to get started with analysis.`,
         ].join('\n');
-
-        return res.json({ response, type: 'signals' });
+        responseType = 'help';
       }
     }
 
-    const response = [
-      `I can help you understand your business performance. Here are things I can do:`,
-      '',
-      `- **Analyze anomalies**: "Why is revenue dropping despite high traffic?"`,
-      `- **Check inventory**: "Which SKUs are out of stock?"`,
-      `- **Review operations**: "What is our return rate?"`,
-      `- **Understand trends**: "Show me revenue trends for the last week"`,
-      '',
-      dashboard?.liveSignals?.length
-        ? `I currently see ${dashboard.liveSignals.length} active signals. Ask me about any of them!`
-        : `Upload data through the Sources page to get started with analysis.`,
-    ].join('\n');
+    // Add assistant message
+    session.messages.push({
+      id: (Date.now() + 1).toString(),
+      role: 'assistant' as const,
+      content: responseText,
+      timestamp: new Date()
+    });
+    await session.save();
 
-    res.json({ response, type: 'help' });
+    return res.json({
+      response: responseText,
+      type: responseType,
+      analysisId: session._id,
+      sessionId: session._id
+    });
+
   } catch (err) {
     console.error('Chat message error:', err);
     res.status(500).json({ message: 'Failed to process message' });
