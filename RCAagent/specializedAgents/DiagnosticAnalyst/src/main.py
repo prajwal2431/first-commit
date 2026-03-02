@@ -4,8 +4,9 @@ from bedrock_agentcore import BedrockAgentCoreApp
 
 from .graph.graph import create_diagnostic_graph
 from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_tools
-from .tools.query_data import query_business_data
+from .tools.query_data import query_business_data, clear_live_data
 from .tools.contribution import calculate_contribution_score
+from .tools.sheet_loader import load_google_sheet, extract_kpi_data
 from .model.load import load_model
 
 if os.getenv("LOCAL_DEV") == "1":
@@ -17,18 +18,22 @@ else:
 
 llm = load_model()
 
-# Diagnostic tools (required by create_diagnostic_graph)
-DIAGNOSTIC_TOOLS = [query_business_data, calculate_contribution_score]
+DIAGNOSTIC_TOOLS = [query_business_data, calculate_contribution_score, load_google_sheet, extract_kpi_data]
 
 app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
 async def invoke(payload):
-    """Run Diagnostic Analyst: decompose revenue drop, rank drivers, drill down by segment, return DiagnosticResult."""
+    """Run Diagnostic Analyst: optionally ingest from Google Sheet, decompose revenue drop,
+    rank drivers, drill down by segment, return DiagnosticResult."""
     prompt = payload.get("prompt", "Revenue dropped WoW. Decompose and rank drivers.")
     thread_id = (payload.get("thread_id") or "default-session")[:100]
     actor_id = payload.get("actor_id") or "default-actor"
+    sheet_url = payload.get("sheet_url", "")
+
+    # Reset live data cache from any previous invocation
+    clear_live_data()
 
     if hasattr(mcp_client, "get_tools"):
         mcp_tools = await mcp_client.get_tools()
@@ -39,6 +44,9 @@ async def invoke(payload):
     graph = create_diagnostic_graph(llm, all_tools, checkpointer=None)
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
+    if sheet_url:
+        initial_state["sheet_url"] = sheet_url
+
     config = {"configurable": {"thread_id": thread_id, "actor_id": actor_id}}
     result = await graph.ainvoke(initial_state, config=config)
 
@@ -64,6 +72,8 @@ async def invoke(payload):
         out["evidence"] = result["evidence"]
     if result.get("reasoning_log"):
         out["reasoning_log"] = result["reasoning_log"]
+    if result.get("column_mapping"):
+        out["column_mapping"] = result["column_mapping"]
     return out
 
 

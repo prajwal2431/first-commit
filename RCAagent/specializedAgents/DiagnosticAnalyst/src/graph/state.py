@@ -43,3 +43,6 @@ class DiagnosticGraphState(TypedDict, total=False):
     current_phase: Annotated[str, _last_str_reducer]
     # Written by supervisor; read by conditional edge. No reducer (overwrite).
     supervisor_decision: dict[str, Any]
+    # Google Sheet integration: set from payload, consumed by worker_ingest
+    sheet_url: str
+    column_mapping: dict[str, Any]

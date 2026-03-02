@@ -1,1 +1,1 @@
-# Add requirements needed for the lambda handler. For example boto3
+boto3>=1.34.0

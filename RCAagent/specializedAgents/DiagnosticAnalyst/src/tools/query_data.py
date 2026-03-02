@@ -2,35 +2,51 @@
 query_business_data tool: pull KPI slices (Traffic, CVR, AOV, Revenue)
 with optional segment filters. Returns structured data; flags Data Quality Gaps
 when data is missing.
+
+Data comes only from set_live_data() (e.g. after parsing a Google Sheet via worker_ingest).
+When no data source is set, returns empty kpi_slices and a Data Quality Gap — no mock/fake data.
 """
 import json
-import os
 from typing import Any
 
 from langchain_core.tools import tool
 
-# Mock data for Indian D2C brand (revenue drop / stockout scenario)
-_MOCK_AGGREGATE = {
-    "Revenue": {"current": 42.5, "baseline": 52.0, "period": "WoW"},
-    "Traffic": {"current": 125000, "baseline": 130000, "period": "WoW"},
-    "CVR": {"current": 2.1, "baseline": 2.5, "period": "WoW"},
-    "AOV": {"current": 1620, "baseline": 1600, "period": "WoW"},
+# ---------------------------------------------------------------------------
+# Live data cache: populated by extract_kpi_data after parsing a Google Sheet
+# ---------------------------------------------------------------------------
+_LIVE_DATA: dict[str, Any] | None = None
+
+_NO_DATA_SOURCE_GAP = {
+    "field_name": "data_source",
+    "reason": "missing",
+    "severity": "high",
+    "message": "No data source. Provide sheet_url in the request payload to load a Google Sheet, or connect a backend data source.",
 }
 
-_MOCK_BY_REGION = {
-    "North India": {"Revenue": {"current": 18.0, "baseline": 24.0}, "Traffic": {"current": 52000, "baseline": 55000}, "CVR": {"current": 1.8, "baseline": 2.4}, "AOV": {"current": 1615, "baseline": 1600}},
-    "South India": {"Revenue": {"current": 14.2, "baseline": 14.5}, "Traffic": {"current": 38000, "baseline": 38000}, "CVR": {"current": 2.2, "baseline": 2.2}, "AOV": {"current": 1625, "baseline": 1620}},
-    "West India": {"Revenue": {"current": 6.8, "baseline": 8.0}, "Traffic": {"current": 22000, "baseline": 23000}, "CVR": {"current": 2.0, "baseline": 2.3}, "AOV": {"current": 1630, "baseline": 1610}},
-    "East India": {"Revenue": {"current": 3.5, "baseline": 5.5}, "Traffic": {"current": 13000, "baseline": 14000}, "CVR": {"current": 1.9, "baseline": 2.2}, "AOV": {"current": 1610, "baseline": 1595}},
-}
 
-_MOCK_BY_CHANNEL = {
-    "Myntra": {"Revenue": {"current": 12.0, "baseline": 18.0}, "Traffic": {"current": 45000, "baseline": 48000}, "CVR": {"current": 1.7, "baseline": 2.2}, "AOV": {"current": 1580, "baseline": 1620}},
-    "Shopify": {"Revenue": {"current": 22.0, "baseline": 24.0}, "Traffic": {"current": 55000, "baseline": 56000}, "CVR": {"current": 2.4, "baseline": 2.5}, "AOV": {"current": 1650, "baseline": 1640}},
-    "Amazon": {"Revenue": {"current": 8.5, "baseline": 10.0}, "Traffic": {"current": 25000, "baseline": 26000}, "CVR": {"current": 2.1, "baseline": 2.2}, "AOV": {"current": 1620, "baseline": 1610}},
-}
+def set_live_data(data: dict[str, Any]) -> None:
+    """Called by extract_kpi_data after parsing a sheet. Supplies the only source of KPI data."""
+    global _LIVE_DATA
+    _LIVE_DATA = data
 
-_MOCK_BY_PINCODE: dict[str, Any] = {}  # Empty = data quality gap when segment_dimension is Pincode
+
+def clear_live_data() -> None:
+    """Reset live data (e.g. between requests or in tests)."""
+    global _LIVE_DATA
+    _LIVE_DATA = None
+
+
+def _get_aggregate() -> dict[str, Any]:
+    if _LIVE_DATA:
+        return _LIVE_DATA.get("aggregate", {})
+    return {}
+
+
+def _get_segment_store(dimension: str) -> dict[str, Any]:
+    if _LIVE_DATA:
+        mapping = {"Region": "by_region", "Channel": "by_channel", "Pincode": "by_pincode"}
+        return _LIVE_DATA.get(mapping.get(dimension, ""), {})
+    return {}
 
 
 def _to_slice(metric_name: str, current: float, baseline: float, period: str = "WoW") -> dict[str, Any]:
@@ -48,39 +64,33 @@ def _to_slice(metric_name: str, current: float, baseline: float, period: str = "
     }
 
 
-def _get_mock_aggregate(metric: str) -> dict[str, Any] | None:
-    m = _MOCK_AGGREGATE.get(metric)
+def _get_aggregate_slice(metric: str) -> dict[str, Any] | None:
+    agg = _get_aggregate()
+    m = agg.get(metric)
     if not m:
         return None
     return _to_slice(metric, m["current"], m["baseline"], m.get("period", "WoW"))
 
 
-def _get_mock_segment(
+def _get_segment(
     segment_dimension: str, segment_value: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     slices: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
 
-    if segment_dimension == "Region":
-        data = _MOCK_BY_REGION.get(segment_value)
-        if not data:
-            gaps.append({"field_name": f"Region:{segment_value}", "reason": "missing", "severity": "medium"})
-            return slices, gaps
-        for metric, v in data.items():
-            slices.append(_to_slice(metric, v["current"], v["baseline"]))
-    elif segment_dimension == "Channel":
-        data = _MOCK_BY_CHANNEL.get(segment_value)
-        if not data:
-            gaps.append({"field_name": f"Channel:{segment_value}", "reason": "missing", "severity": "medium"})
-            return slices, gaps
-        for metric, v in data.items():
-            slices.append(_to_slice(metric, v["current"], v["baseline"]))
-    elif segment_dimension == "Pincode":
-        if not _MOCK_BY_PINCODE or segment_value not in _MOCK_BY_PINCODE:
-            gaps.append({"field_name": "Pincode", "reason": "missing", "severity": "high"})
+    store = _get_segment_store(segment_dimension)
+    if not store:
+        gaps.append(_NO_DATA_SOURCE_GAP if not _LIVE_DATA else {"field_name": segment_dimension, "reason": "missing", "severity": "medium"})
         return slices, gaps
-    else:
-        gaps.append({"field_name": segment_dimension, "reason": "incomplete", "severity": "medium"})
+
+    data = store.get(segment_value)
+    if not data:
+        gaps.append({"field_name": f"{segment_dimension}:{segment_value}", "reason": "missing", "severity": "medium"})
+        return slices, gaps
+
+    for metric, v in data.items():
+        if isinstance(v, dict) and "current" in v and "baseline" in v:
+            slices.append(_to_slice(metric, v["current"], v["baseline"]))
 
     return slices, gaps
 
@@ -94,42 +104,34 @@ def query_business_data(
 ) -> str:
     """Pull KPI slices for Revenue decomposition. Use metric 'Revenue', 'Traffic', 'CVR', 'AOV', or 'all'.
     Optionally filter by segment_dimension ('Pincode', 'Region', 'Channel') and segment_value (e.g. 'North India', 'Myntra').
-    Returns JSON with current and baseline values; includes data_quality_gaps when data is missing."""
-    use_mock = os.getenv("LOCAL_DEV") == "1" or not os.getenv("GATEWAY_URL")
+    Data must be loaded first via a Google Sheet (sheet_url) or other data source. Returns JSON with current and baseline values; includes data_quality_gaps when data is missing or no source provided."""
 
     if segment_dimension and segment_value:
-        slices, data_quality_gaps = _get_mock_segment(segment_dimension, segment_value)
+        slices, data_quality_gaps = _get_segment(segment_dimension, segment_value)
+        if not _LIVE_DATA and not data_quality_gaps:
+            data_quality_gaps = [_NO_DATA_SOURCE_GAP]
         out: dict[str, Any] = {"kpi_slices": slices, "data_quality_gaps": data_quality_gaps}
         return json.dumps(out)
 
-    if use_mock:
-        if metric == "all":
-            slices = []
-            for m in ("Revenue", "Traffic", "CVR", "AOV"):
-                s = _get_mock_aggregate(m)
-                if s:
-                    slices.append(s)
-            return json.dumps({"kpi_slices": slices, "data_quality_gaps": []})
-        s = _get_mock_aggregate(metric)
-        if not s:
-            return json.dumps({
-                "kpi_slices": [],
-                "data_quality_gaps": [{"field_name": metric, "reason": "missing", "severity": "medium"}],
-            })
-        return json.dumps({"kpi_slices": [s], "data_quality_gaps": []})
-
-    # Deployed path: could call real backend; for now return same mock structure
     if metric == "all":
         slices = []
-        for m in ("Revenue", "Traffic", "CVR", "AOV"):
-            s = _get_mock_aggregate(m)
-            if s:
-                slices.append(s)
-        return json.dumps({"kpi_slices": slices, "data_quality_gaps": []})
-    s = _get_mock_aggregate(metric)
+        gaps = []
+        if not _LIVE_DATA:
+            gaps.append(_NO_DATA_SOURCE_GAP)
+        else:
+            for m in ("Revenue", "Traffic", "CVR", "AOV"):
+                s = _get_aggregate_slice(m)
+                if s:
+                    slices.append(s)
+                else:
+                    gaps.append({"field_name": m, "reason": "missing", "severity": "medium"})
+        return json.dumps({"kpi_slices": slices, "data_quality_gaps": gaps})
+
+    s = _get_aggregate_slice(metric)
     if not s:
+        gaps = [_NO_DATA_SOURCE_GAP] if not _LIVE_DATA else [{"field_name": metric, "reason": "missing", "severity": "medium"}]
         return json.dumps({
             "kpi_slices": [],
-            "data_quality_gaps": [{"field_name": metric, "reason": "missing", "severity": "medium"}],
+            "data_quality_gaps": gaps,
         })
     return json.dumps({"kpi_slices": [s], "data_quality_gaps": []})

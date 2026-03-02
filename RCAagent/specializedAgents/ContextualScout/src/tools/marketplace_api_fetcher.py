@@ -1,6 +1,7 @@
 """
-marketplace_api_fetcher tool: check Myntra/Amazon/Shopify sync latency,
-Buybox status, and listing health. Returns structured data with evidence_trace.
+marketplace_api_fetcher tool: check marketplace operational health
+(sync latency, Buybox status, listing health) via web search.
+No mock/fake data. When web search is unavailable, explicitly says so.
 """
 import json
 from datetime import datetime, timezone
@@ -8,22 +9,23 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-# Mock marketplace data for Indian D2C (revenue drop scenario)
-_MOCK_MARKETPLACE: dict[str, dict[str, Any]] = {
+from .web_search import _search_tavily
+
+_MARKETPLACE_QUERIES: dict[str, dict[str, str]] = {
     "myntra": {
-        "sync_latency": {"status": "warning", "latency_ms": 15120000, "details": "Catalog sync delay ~4.2 hours"},
-        "buybox_status": {"status": "ok", "latency_ms": None, "details": "Buybox held"},
-        "listing_health": {"status": "warning", "latency_ms": None, "details": "3 listings suppressed for image mismatch"},
+        "sync_latency": "Myntra seller catalog sync delay issues India",
+        "buybox_status": "Myntra seller Buybox loss competition India",
+        "listing_health": "Myntra listing suppressed removed India seller",
     },
     "amazon": {
-        "sync_latency": {"status": "ok", "latency_ms": 300000, "details": "~5 min sync"},
-        "buybox_status": {"status": "error", "latency_ms": None, "details": "Buybox lost on top 3 SKUs (price undercut)"},
-        "listing_health": {"status": "ok", "latency_ms": None, "details": "Listings live"},
+        "sync_latency": "Amazon India seller catalog sync delay issues",
+        "buybox_status": "Amazon India Buybox loss price undercut seller",
+        "listing_health": "Amazon India listing suppressed deactivated seller",
     },
     "shopify": {
-        "sync_latency": {"status": "ok", "latency_ms": 120000, "details": "~2 min sync"},
-        "buybox_status": {"status": "ok", "latency_ms": None, "details": "N/A (direct)"},
-        "listing_health": {"status": "ok", "latency_ms": None, "details": "All listings healthy"},
+        "sync_latency": "Shopify India store sync delay issues",
+        "buybox_status": "Shopify India seller competition pricing",
+        "listing_health": "Shopify India listing issues product removed",
     },
 }
 
@@ -42,21 +44,72 @@ def marketplace_api_fetcher(
     platform: str,
     check_type: str,
 ) -> str:
-    """Check marketplace operational health: sync_latency, buybox_status, or listing_health for myntra, amazon, or shopify.
-    Use to check for Myntra/Amazon sync latency or Buybox losses. Returns JSON with status, latency_ms if applicable, details, and evidence_trace."""
+    """Check marketplace operational health via web search: sync_latency, buybox_status, or listing_health
+    for myntra, amazon, or shopify. Uses real web search (Tavily). If no results or no API key, clearly
+    states 'no data found'. Never returns fake data. Returns JSON with findings and evidence_trace."""
     platform = (platform or "myntra").lower()
     check_type = (check_type or "sync_latency").lower().replace(" ", "_")
-    if platform not in _MOCK_MARKETPLACE:
+    valid_platforms = ("myntra", "amazon", "shopify")
+    valid_checks = ("sync_latency", "buybox_status", "listing_health")
+    if platform not in valid_platforms:
         platform = "myntra"
-    if check_type not in ("sync_latency", "buybox_status", "listing_health"):
+    if check_type not in valid_checks:
         check_type = "sync_latency"
 
-    row = _MOCK_MARKETPLACE[platform][check_type].copy()
-    row["platform"] = platform
-    row["check_type"] = check_type
-    query_params = {"platform": platform, "check_type": check_type}
-    raw_for_trace = dict(row)
-    trace = _evidence_trace("marketplace_api_fetcher", query_params, raw_for_trace)
-    row["evidence_trace"] = trace
+    search_query = _MARKETPLACE_QUERIES.get(platform, {}).get(
+        check_type, f"{platform} {check_type} issues India"
+    )
+    query_params = {"platform": platform, "check_type": check_type, "search_query": search_query}
 
-    return json.dumps(row)
+    search_result = _search_tavily(search_query, max_results=5)
+
+    if search_result.get("error"):
+        data = {
+            "platform": platform,
+            "check_type": check_type,
+            "status": "unavailable",
+            "details": f"Web search unavailable: {search_result['error']}",
+            "latency_ms": None,
+            "findings": [],
+        }
+        trace = _evidence_trace("marketplace_api_fetcher", query_params, {"search_error": search_result["error"]})
+        data["evidence_trace"] = trace
+        return json.dumps(data)
+
+    findings: list[dict[str, Any]] = []
+    for r in search_result.get("results", []):
+        findings.append({
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "content": r.get("content", "")[:500],
+        })
+
+    if not findings:
+        data = {
+            "platform": platform,
+            "check_type": check_type,
+            "status": "no_data",
+            "details": f"No web search results found for: {search_query}",
+            "latency_ms": None,
+            "findings": [],
+        }
+        trace = _evidence_trace("marketplace_api_fetcher", query_params, {"search_results_count": 0})
+        data["evidence_trace"] = trace
+        return json.dumps(data)
+
+    raw_for_trace = {
+        "search_results_count": len(findings),
+        "search_query": search_query,
+        "results_summary": [{"title": f["title"], "url": f["url"]} for f in findings],
+    }
+    trace = _evidence_trace("marketplace_api_fetcher", query_params, raw_for_trace)
+    data = {
+        "platform": platform,
+        "check_type": check_type,
+        "status": "searched",
+        "details": f"Found {len(findings)} web results about {platform} {check_type}.",
+        "latency_ms": None,
+        "findings": findings,
+        "evidence_trace": trace,
+    }
+    return json.dumps(data)

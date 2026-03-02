@@ -9,10 +9,12 @@ from langgraph.types import Send
 from .nodes import (
     WORKER_DECOMPOSE,
     WORKER_DRILLDOWN,
+    WORKER_INGEST,
     WORKER_SYNTHESIZE,
     make_supervisor_node,
     make_worker_decompose,
     make_worker_drilldown,
+    make_worker_ingest,
     make_worker_synthesize,
 )
 from .state import DiagnosticGraphState
@@ -40,6 +42,7 @@ def _get_tool_by_name(tools: list[Any], name: str) -> Any:
 def create_diagnostic_graph(llm: Any, tools: list[Any], checkpointer: Any = None) -> Any:
     """
     Build the compiled Diagnostic Analyst supervisor graph.
+    - worker_ingest: load_google_sheet + extract_kpi_data (optional, when sheet_url is provided)
     - worker_decompose: query_business_data + calculate_contribution_score
     - worker_drilldown: query_business_data (per segment)
     - worker_synthesize: no tools
@@ -49,9 +52,17 @@ def create_diagnostic_graph(llm: Any, tools: list[Any], checkpointer: Any = None
     if not query_tool or not contribution_tool:
         raise ValueError("tools must include query_business_data and calculate_contribution_score")
 
+    load_sheet_tool = _get_tool_by_name(tools, "load_google_sheet")
+    extract_kpi_tool = _get_tool_by_name(tools, "extract_kpi_data")
+
     builder = StateGraph(DiagnosticGraphState)
 
     builder.add_node("supervisor", make_supervisor_node(llm))
+
+    if load_sheet_tool and extract_kpi_tool:
+        builder.add_node(WORKER_INGEST, make_worker_ingest(llm, load_sheet_tool, extract_kpi_tool))
+        builder.add_edge(WORKER_INGEST, "supervisor")
+
     builder.add_node(
         WORKER_DECOMPOSE,
         make_worker_decompose(llm, query_tool, contribution_tool),

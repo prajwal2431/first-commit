@@ -117,10 +117,6 @@ def make_worker_action_mapper(llm: Any, map_tool: Any) -> Any:
 
     def node(state: RemediationGraphState) -> dict[str, Any]:
         root_causes = state.get("root_causes") or []
-        if not root_causes and state.get("messages"):
-            # Default: single generic root cause from context
-            root_causes = [{"root_cause_type": "stockout", "severity": "medium", "affected_skus": None, "affected_region": None}]
-
         all_actions: list[dict[str, Any]] = []
         evidence_traces: list[dict[str, Any]] = []
         reasoning_log: list[dict[str, Any]] = []

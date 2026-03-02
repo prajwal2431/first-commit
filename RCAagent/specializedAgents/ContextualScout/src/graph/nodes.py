@@ -1,6 +1,7 @@
 """
 Supervisor and worker nodes for the Contextual Scout graph.
 Supervisor runs: correlate + marketplace + supply_chain (parallel) -> synthesize -> done.
+All data comes from real web search or connected data sources. No mock data.
 """
 import json
 import re
@@ -22,6 +23,8 @@ Flow (follow in order):
 1. First pass: Call worker_correlate, worker_marketplace, and worker_supply_chain in parallel (all three in one sends list) to gather external signals, marketplace checks, and supply chain audits.
 2. Second pass: When those three workers have run, call worker_synthesize once to produce confidence scores and a summary with evidence citations.
 3. Then respond with {"done": true}.
+
+IMPORTANT: Tools use real web search. Some may return 'no data found' or 'unavailable' — that is expected. Do NOT invent data. If a tool finds nothing, that is a valid result.
 
 You must respond with ONLY a valid JSON object, no other text:
 
@@ -108,7 +111,8 @@ def _run_worker_agent(llm: Any, tools: list[Any], system_prompt: str, task_messa
 
 
 def make_worker_correlate(llm: Any, social_tool: Any) -> Any:
-    """Worker: call social_signal_analyzer for competitor_activity, viral_trend, sentiment, weather; write external_signals and evidence_traces."""
+    """Worker: call social_signal_analyzer for competitor_activity, viral_trend, sentiment, weather.
+    Handles 'no data' responses gracefully — never invents data."""
 
     def node(payload: dict[str, Any]) -> dict[str, Any]:
         out_signals: list[dict[str, Any]] = []
@@ -122,13 +126,27 @@ def make_worker_correlate(llm: Any, social_tool: Any) -> Any:
                     data = raw
                 trace = data.get("evidence_trace", {})
                 traces.append(trace)
+
+                search_status = data.get("search_status", "ok")
+                if search_status in ("unavailable", "no_results"):
+                    out_signals.append({
+                        "source": "social_signal_analyzer",
+                        "signal_type": signal_type,
+                        "description": data.get("reason", f"No data found for {signal_type}"),
+                        "region": None,
+                        "severity": "no_data",
+                        "evidence_trace": trace,
+                    })
+                    continue
+
                 for s in data.get("signals", []):
                     out_signals.append({
                         "source": "social_signal_analyzer",
                         "signal_type": signal_type,
                         "description": s.get("description", ""),
                         "region": s.get("region"),
-                        "severity": s.get("severity", "medium"),
+                        "severity": s.get("severity", "unknown"),
+                        "source_url": s.get("source_url", ""),
                         "evidence_trace": trace,
                     })
             except Exception as e:
@@ -138,8 +156,10 @@ def make_worker_correlate(llm: Any, social_tool: Any) -> Any:
                     "raw_data": {"error": str(e)},
                     "timestamp": None,
                 })
-        summary = f"Correlate: {len(out_signals)} external signals from social_signal_analyzer."
-        log_entries = [{"phase": "correlate", "output": summary, "signals_count": len(out_signals)}]
+
+        found = sum(1 for s in out_signals if s.get("severity") != "no_data")
+        summary = f"Correlate: {found} real signals found, {len(out_signals) - found} categories had no data."
+        log_entries = [{"phase": "correlate", "output": summary, "signals_count": len(out_signals), "real_signals": found}]
         return {
             "external_signals": out_signals,
             "evidence_traces": traces,
@@ -152,7 +172,8 @@ def make_worker_correlate(llm: Any, social_tool: Any) -> Any:
 
 
 def make_worker_marketplace(llm: Any, marketplace_tool: Any) -> Any:
-    """Worker: call marketplace_api_fetcher for each platform x check_type; write marketplace_checks and evidence_traces."""
+    """Worker: call marketplace_api_fetcher for each platform x check_type.
+    Handles 'no data' responses gracefully — never invents data."""
 
     def node(payload: dict[str, Any]) -> dict[str, Any]:
         out_checks: list[dict[str, Any]] = []
@@ -170,9 +191,10 @@ def make_worker_marketplace(llm: Any, marketplace_tool: Any) -> Any:
                     out_checks.append({
                         "platform": data.get("platform", platform),
                         "check_type": data.get("check_type", check_type),
-                        "status": data.get("status", "ok"),
+                        "status": data.get("status", "no_data"),
                         "latency_ms": data.get("latency_ms"),
                         "details": data.get("details"),
+                        "findings": data.get("findings", []),
                         "evidence_trace": trace,
                     })
                 except Exception as e:
@@ -182,8 +204,10 @@ def make_worker_marketplace(llm: Any, marketplace_tool: Any) -> Any:
                         "raw_data": {"error": str(e)},
                         "timestamp": None,
                     })
-        summary = f"Marketplace: {len(out_checks)} checks from marketplace_api_fetcher."
-        log_entries = [{"phase": "marketplace", "output": summary, "checks_count": len(out_checks)}]
+
+        with_data = sum(1 for c in out_checks if c.get("status") == "searched")
+        summary = f"Marketplace: {len(out_checks)} checks, {with_data} returned search results."
+        log_entries = [{"phase": "marketplace", "output": summary, "checks_count": len(out_checks), "with_data": with_data}]
         return {
             "marketplace_checks": out_checks,
             "evidence_traces": traces,
@@ -196,7 +220,7 @@ def make_worker_marketplace(llm: Any, marketplace_tool: Any) -> Any:
 
 
 def make_worker_supply_chain(llm: Any, inventory_tool: Any) -> Any:
-    """Worker: call inventory_mismatch_checker; write supply_chain_audits and evidence_traces."""
+    """Worker: call inventory_mismatch_checker. Handles 'no data source' gracefully."""
 
     def node(payload: dict[str, Any]) -> dict[str, Any]:
         out_audits: list[dict[str, Any]] = []
@@ -209,6 +233,19 @@ def make_worker_supply_chain(llm: Any, inventory_tool: Any) -> Any:
                 data = raw
             trace = data.get("evidence_trace", {})
             traces.append(trace)
+
+            status = data.get("status", "")
+            if status == "no_data_source":
+                summary = f"Supply chain: No inventory data source connected. {data.get('reason', '')}"
+                log_entries = [{"phase": "supply_chain", "output": summary, "status": "no_data_source"}]
+                return {
+                    "supply_chain_audits": [],
+                    "evidence_traces": traces,
+                    "reasoning_log": log_entries,
+                    "messages": [AIMessage(content=summary)],
+                    "current_phase": "supply_chain",
+                }
+
             for m in data.get("mismatches", []):
                 out_audits.append({
                     "sku": m.get("sku", ""),
@@ -226,7 +263,8 @@ def make_worker_supply_chain(llm: Any, inventory_tool: Any) -> Any:
                 "raw_data": {"error": str(e)},
                 "timestamp": None,
             })
-        summary = f"Supply chain: {len(out_audits)} inventory mismatches from inventory_mismatch_checker."
+
+        summary = f"Supply chain: {len(out_audits)} inventory mismatches found."
         log_entries = [{"phase": "supply_chain", "output": summary, "audits_count": len(out_audits)}]
         return {
             "supply_chain_audits": out_audits,
@@ -240,20 +278,24 @@ def make_worker_supply_chain(llm: Any, inventory_tool: Any) -> Any:
 
 
 def make_worker_synthesize(llm: Any) -> Any:
-    """Worker: produce confidence scores for each external factor and summary with evidence citations. No tools."""
+    """Worker: produce confidence scores for each external factor and summary with evidence citations. No tools.
+    Must only report what was actually found. If nothing was found, say so."""
 
     def node(payload: dict[str, Any]) -> dict[str, Any]:
         task = payload.get(
             "task",
-            "Score confidence for each external factor and summarize with evidence traces. Cite specific regional/source data for every claim.",
+            "Score confidence for each external factor and summarize with evidence traces. "
+            "Cite specific URLs and data for every claim. If a tool returned 'no data found' or "
+            "'unavailable', report that honestly — do NOT invent data.",
         )
         system = """You are the Contextual Scout (External Root Cause Finder). Using the gathered external_signals, marketplace_checks, and supply_chain_audits in state, produce:
-1. A confidence score (0.0-1.0) for each external factor (e.g. competitor activity, weather, Buybox loss, inventory mismatch), with brief rationale.
-2. A short narrative summary (2-4 sentences) that cites evidence: e.g. 'Weather caused drop' must cite the specific regional weather data; 'Buybox loss' must cite platform and SKUs. Every claim must have an evidence trace.
-Output clear, audit-ready text. Do not invent data; only use what was gathered."""
+1. A confidence score (0.0-1.0) for each external factor found, with brief rationale.
+2. A short narrative summary (2-4 sentences) that cites evidence: URLs, source titles, specific data.
+3. If a tool returned 'no data found', 'unavailable', or 'no data source', report that honestly.
+
+CRITICAL: Do NOT invent data. Only use what was actually gathered. If nothing was found, say 'No external data was found for this category'."""
         content = _run_worker_agent(llm, [], system, task)
-        # Build placeholder confidence_scores from content (LLM output); full scoring could be structured later
-        confidence_scores = [{"factor_type": "synthesized", "confidence": 0.8, "rationale": content[:200]}]
+        confidence_scores = [{"factor_type": "synthesized", "confidence": 0.0, "rationale": content[:200]}]
         log_entries = [{"phase": "synthesize", "output": content[:500]}]
         return {
             "confidence_scores": confidence_scores,

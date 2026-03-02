@@ -1,7 +1,7 @@
 """
-inventory_mismatch_checker tool: audit supply chain for inventory mismatch
-where demand is high in one region but stock is trapped in another. Returns
-structured data with evidence_trace.
+inventory_mismatch_checker tool: audit supply chain for inventory mismatch.
+This requires real inventory/WMS data from the user's systems.
+No mock/fake data — clearly reports when no data source is connected.
 """
 import json
 from datetime import datetime, timezone
@@ -9,27 +9,25 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-# Mock inventory mismatch data for Indian D2C (stockout scenario)
-_MOCK_MISMATCHES: list[dict[str, Any]] = [
-    {
-        "sku": "SKU-1234",
-        "demand_region": "Delhi",
-        "stock_region": "Mumbai",
-        "demand_units": 800,
-        "available_units": 650,
-        "mismatch_severity": "high",
-        "details": "Demand high in Delhi; 650 units stuck in Mumbai warehouse, transfer 3–5 days",
-    },
-    {
-        "sku": "SKU-5678",
-        "demand_region": "Bangalore",
-        "stock_region": "Chennai",
-        "demand_units": 420,
-        "available_units": 380,
-        "mismatch_severity": "medium",
-        "details": "Bangalore demand spike; stock in Chennai, 1–2 day transfer",
-    },
-]
+# Live inventory data cache: populated externally (e.g. from a sheet or WMS integration)
+_LIVE_INVENTORY: dict[str, Any] | None = None
+
+_NO_DATA_SOURCE = {
+    "status": "no_data_source",
+    "reason": "No inventory/WMS data source connected. Provide inventory data via sheet_url, "
+              "WMS API, or other integration to enable supply chain mismatch detection.",
+}
+
+
+def set_live_inventory(data: dict[str, Any]) -> None:
+    """Called externally to supply inventory data (e.g. from a Google Sheet or WMS API)."""
+    global _LIVE_INVENTORY
+    _LIVE_INVENTORY = data
+
+
+def clear_live_inventory() -> None:
+    global _LIVE_INVENTORY
+    _LIVE_INVENTORY = None
 
 
 def _evidence_trace(source_tool: str, query_params: dict[str, Any], raw_data: dict[str, Any]) -> dict[str, Any]:
@@ -47,25 +45,42 @@ def inventory_mismatch_checker(
     demand_region: str | None = None,
     stock_region: str | None = None,
 ) -> str:
-    """Check for inventory mismatch: demand high in one region (e.g. Delhi) but stock trapped in another (e.g. Mumbai).
-    Supply chain audit for Indian D2C. Optional filters: sku, demand_region, stock_region. Returns JSON list of mismatches with evidence_trace."""
+    """Check for inventory mismatch: demand high in one region but stock trapped in another.
+    Requires real inventory data from a connected data source (sheet, WMS API).
+    If no data source is connected, explicitly says so — never returns fake data.
+    Returns JSON with mismatches list and evidence_trace."""
     query_params = {"sku": sku, "demand_region": demand_region, "stock_region": stock_region}
+
+    if _LIVE_INVENTORY is None:
+        data = {
+            "mismatches": [],
+            "query_params_used": query_params,
+            **_NO_DATA_SOURCE,
+        }
+        trace = _evidence_trace("inventory_mismatch_checker", query_params, _NO_DATA_SOURCE)
+        data["evidence_trace"] = trace
+        return json.dumps(data)
+
+    mismatches_raw = _LIVE_INVENTORY.get("mismatches", [])
     out: list[dict[str, Any]] = []
 
-    for m in _MOCK_MISMATCHES:
-        if sku and m["sku"] != sku:
+    for m in mismatches_raw:
+        if sku and m.get("sku") != sku:
             continue
-        if demand_region and m["demand_region"] != demand_region:
+        if demand_region and m.get("demand_region") != demand_region:
             continue
-        if stock_region and m["stock_region"] != stock_region:
+        if stock_region and m.get("stock_region") != stock_region:
             continue
-        row = m.copy()
+        row = dict(m)
         raw_for_trace = dict(row)
-        trace = _evidence_trace("inventory_mismatch_checker", query_params, raw_for_trace)
-        row["evidence_trace"] = trace
+        row["evidence_trace"] = _evidence_trace("inventory_mismatch_checker", query_params, raw_for_trace)
         out.append(row)
 
-    payload = {"mismatches": out, "query_params_used": query_params}
-    raw_for_trace = dict(payload)
+    payload = {
+        "mismatches": out,
+        "query_params_used": query_params,
+        "status": "ok" if out else "no_mismatches_found",
+    }
+    raw_for_trace = {"mismatches_count": len(out), "query_params": query_params}
     payload["evidence_trace"] = _evidence_trace("inventory_mismatch_checker", query_params, raw_for_trace)
     return json.dumps(payload)

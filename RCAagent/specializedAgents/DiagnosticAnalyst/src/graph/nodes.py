@@ -1,6 +1,6 @@
 """
 Supervisor and worker nodes for the Diagnostic Analyst graph.
-Supervisor runs 3-step flow: decompose -> drilldown (parallel) -> synthesize.
+Supervisor runs: (optionally) ingest -> decompose -> drilldown (parallel) -> synthesize.
 """
 import json
 import re
@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from .state import DiagnosticGraphState
 
+WORKER_INGEST = "worker_ingest"
 WORKER_DECOMPOSE = "worker_decompose"
 WORKER_DRILLDOWN = "worker_drilldown"
 WORKER_SYNTHESIZE = "worker_synthesize"
@@ -18,7 +19,8 @@ WORKER_SYNTHESIZE = "worker_synthesize"
 SUPERVISOR_SYSTEM = """You are the supervisor for the Diagnostic Analyst (Nexus Intelligence). You mathematically decompose KPI deviations.
 
 Flow (follow in order):
-1. worker_decompose: Pull Traffic, CVR, AOV via query_business_data and rank drivers via calculate_contribution_score. Call once at the start.
+0. worker_ingest: If a sheet_url is provided, call this FIRST to load and parse the customer's Google Sheet. Payload: {"sheet_url": "<url>"}. Skip this step if no sheet_url is present (sheet_url will be empty or missing).
+1. worker_decompose: Pull Traffic, CVR, AOV via query_business_data and rank drivers via calculate_contribution_score. Call once after ingest (or as first step if no sheet).
 2. worker_drilldown: Check if the drop is localized to a segment. Call in parallel for each dimension: Pincode, Region, Channel. Use payload {"segment_dimension": "Region", "segment_value": "North India"} (or Channel/Myntra, Pincode/110001, etc.).
 3. worker_synthesize: Produce the final DiagnosticResult with ranked drivers and evidence. Call once when decompose and drilldown are done.
 
@@ -28,11 +30,13 @@ You must respond with ONLY a valid JSON object, no other text:
 2. To call workers: {"sends": [{"node": "<worker_name>", "payload": <object>}, ...]}
 
 Examples:
-- First step: {"sends": [{"node": "worker_decompose", "payload": {"task": "Decompose revenue drop: pull Traffic, CVR, AOV and rank contribution"}}]}
+- If sheet_url present, first step: {"sends": [{"node": "worker_ingest", "payload": {"sheet_url": "https://docs.google.com/spreadsheets/d/..."}}]}
+- If no sheet_url, first step: {"sends": [{"node": "worker_decompose", "payload": {"task": "Decompose revenue drop: pull Traffic, CVR, AOV and rank contribution"}}]}
+- After ingest: {"sends": [{"node": "worker_decompose", "payload": {"task": "Decompose revenue drop: pull Traffic, CVR, AOV and rank contribution"}}]}
 - Segment drilldown: {"sends": [{"node": "worker_drilldown", "payload": {"segment_dimension": "Region", "segment_value": "North India"}}, {"node": "worker_drilldown", "payload": {"segment_dimension": "Channel", "segment_value": "Myntra"}}, {"node": "worker_drilldown", "payload": {"segment_dimension": "Pincode", "segment_value": "110001"}}]}
 - Final step: {"sends": [{"node": "worker_synthesize", "payload": {"task": "Summarize DiagnosticResult with ranked drivers and evidence"}}]}
 
-Valid node names: worker_decompose, worker_drilldown, worker_synthesize.
+Valid node names: worker_ingest, worker_decompose, worker_drilldown, worker_synthesize.
 """
 
 
@@ -54,14 +58,20 @@ def make_supervisor_node(llm: Any) -> Any:
         contribution_scores = state.get("contribution_scores") or []
         segment_breakdowns = state.get("segment_breakdowns") or []
         reasoning_log = state.get("reasoning_log") or []
+        sheet_url = state.get("sheet_url") or ""
+        column_mapping = state.get("column_mapping")
         prompt_parts = [
             "Current state:",
+            f"- sheet_url: {'provided' if sheet_url else 'none'}",
+            f"- column_mapping: {'set' if column_mapping else 'not set'}",
             f"- Messages: {len(messages)}",
             f"- KPI slices: {len(kpi_slices)}",
             f"- Contribution scores: {len(contribution_scores)}",
             f"- Segment breakdowns: {len(segment_breakdowns)}",
             f"- Reasoning log entries: {len(reasoning_log)}",
         ]
+        if sheet_url and not column_mapping:
+            prompt_parts.append(f"\nsheet_url is provided but not yet ingested. Call worker_ingest first with sheet_url: {sheet_url}")
         if messages:
             last_msg = messages[-1]
             prompt_parts.append(
@@ -222,6 +232,76 @@ def make_worker_drilldown(llm: Any, query_tool: Any) -> Any:
             "reasoning_log": log_entries,
             "messages": [AIMessage(content=summary)],
             "current_phase": "drilldown",
+        }
+
+    return node
+
+
+def make_worker_ingest(llm: Any, load_sheet_tool: Any, extract_kpi_tool: Any) -> Any:
+    """Worker: load a Google Sheet, use the LLM to map columns to KPIs, then extract structured data."""
+
+    INGEST_SYSTEM = """You are a data analyst for Nexus Intelligence. You have two tools:
+1. load_google_sheet: reads a Google Sheet URL and returns tab names, column headers, and sample rows.
+2. extract_kpi_data: takes the raw sheet data and a column mapping you produce, and extracts structured KPI data.
+
+Your task:
+1. Call load_google_sheet with the sheet_url to see the raw data.
+2. Analyze the tabs and columns. Figure out which columns map to: Revenue, Traffic, CVR (conversion rate), AOV (average order value). Also identify segment dimensions (Region, Channel, Pincode) if present.
+3. Determine which rows are "current" vs "baseline" (e.g. most recent row = current, second most recent = baseline). Use negative indices: -1 for last row (current), -2 for second-to-last (baseline).
+4. Call extract_kpi_data with two JSON string arguments:
+   - raw_tabs_json: the "raw_tabs" field from the load_google_sheet output
+   - column_mapping_json: a JSON object you construct with this shape:
+     {
+       "aggregate_tab": "<tab name with overall metrics>",
+       "aggregate_mapping": {
+         "date_col": "<date/period column name>",
+         "Revenue": "<revenue column name>",
+         "Traffic": "<traffic/sessions column name>",
+         "CVR": "<conversion rate column name>",
+         "AOV": "<average order value column name>"
+       },
+       "segment_tabs": [
+         {
+           "tab": "<tab name>",
+           "dimension": "Region|Channel|Pincode",
+           "dimension_col": "<column with segment values>",
+           "date_col": "<date column>",
+           "Revenue": "<revenue col>",
+           "Traffic": "<traffic col>",
+           "CVR": "<cvr col>",
+           "AOV": "<aov col>"
+         }
+       ],
+       "period_detection": {
+         "current_row_index": -1,
+         "baseline_row_index": -2,
+         "period_label": "WoW"
+       }
+     }
+5. Report what you found: how many KPIs mapped, how many segments, any gaps.
+
+Do NOT guess values. If a column cannot be mapped to a KPI, skip it. The extract tool will flag Data Quality Gaps for missing KPIs."""
+
+    def node(payload: dict[str, Any]) -> dict[str, Any]:
+        sheet_url = payload.get("sheet_url", "")
+        if not sheet_url:
+            return {
+                "data_quality_gaps": [{"field_name": "sheet_url", "reason": "missing", "severity": "high"}],
+                "reasoning_log": [{"phase": "ingest", "output": "No sheet_url provided, skipping ingest."}],
+                "messages": [AIMessage(content="No sheet_url provided. Using default/mock data.")],
+                "current_phase": "ingest",
+            }
+
+        task_message = f"Load and parse this Google Sheet: {sheet_url}"
+        content = _run_worker_agent(llm, [load_sheet_tool, extract_kpi_tool], INGEST_SYSTEM, task_message)
+        log_entries = [{"phase": "ingest", "output": content[:500]}]
+
+        return {
+            "column_mapping": {"status": "set", "sheet_url": sheet_url},
+            "evidence": [{"source": "worker_ingest", "sheet_url": sheet_url, "summary": content[:500]}],
+            "reasoning_log": log_entries,
+            "messages": [AIMessage(content=content)],
+            "current_phase": "ingest",
         }
 
     return node

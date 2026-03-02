@@ -4,8 +4,8 @@ from bedrock_agentcore import BedrockAgentCoreApp
 
 from .graph.graph import create_remediation_graph
 from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_mcp_client
-from .tools.simulate_impact import simulate_impact_range
-from .tools.map_remediation import map_remediation_action
+from .tools.simulate_impact import make_simulate_impact_range_tool
+from .tools.map_remediation import make_map_remediation_action_tool
 from .tools.assess_risk import assess_risk_level
 from .model.load import load_model
 
@@ -18,7 +18,12 @@ else:
 
 llm = load_model()
 
-REMEDIATION_TOOLS = [simulate_impact_range, map_remediation_action, assess_risk_level]
+def _remediation_tools():
+    return [
+        make_simulate_impact_range_tool(llm),
+        make_map_remediation_action_tool(llm),
+        assess_risk_level,
+    ]
 
 app = BedrockAgentCoreApp()
 
@@ -35,7 +40,7 @@ async def invoke(payload):
         mcp_tools = await mcp_client.get_tools()
     else:
         mcp_tools = await mcp_client()
-    all_tools = mcp_tools + REMEDIATION_TOOLS
+    all_tools = mcp_tools + _remediation_tools()
 
     graph = create_remediation_graph(llm, all_tools, checkpointer=None)
 

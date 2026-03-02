@@ -1,6 +1,11 @@
 import json
+import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict
+
+# Default model for LLM-based tools (override with BEDROCK_MODEL_ID)
+DEFAULT_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-v2:0")
 
 
 def lambda_handler(event, context):
@@ -8,8 +13,8 @@ def lambda_handler(event, context):
     Lambda handler for Bedrock AgentCore Gateway tools.
     Dispatches by context.client_context.custom["bedrockAgentCoreToolName"]:
     - LambdaTarget___placeholder_tool
-    - LambdaTarget___simulate_impact_range
-    - LambdaTarget___map_remediation_action
+    - LambdaTarget___simulate_impact_range (LLM-generated)
+    - LambdaTarget___map_remediation_action (LLM-generated)
     - LambdaTarget___assess_risk_level
     """
     try:
@@ -53,8 +58,53 @@ def _evidence_trace(source_tool: str, query_params: Dict[str, Any], raw_data: Di
     }
 
 
+def _invoke_bedrock(system: str, user: str, model_id: str | None = None) -> str:
+    """Call Bedrock Converse/InvokeModel and return assistant text."""
+    import boto3
+
+    model_id = model_id or DEFAULT_MODEL_ID
+    client = boto3.client("bedrock-runtime")
+    # Claude Messages API body
+    body = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
+    }
+    response = client.invoke_model(
+        modelId=model_id,
+        contentType="application/json",
+        accept="application/json",
+        body=json.dumps(body),
+    )
+    result = json.loads(response["body"].read())
+    # Response has content array with type "text" and "text" field
+    out = ""
+    for block in result.get("content", []):
+        if block.get("type") == "text":
+            out += block.get("text", "")
+    return out
+
+
+def _extract_json(text: str) -> Dict[str, Any]:
+    text = (text or "").strip()
+    match = re.search(r"\{[\s\S]*\}", text)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    match = re.search(r"\[[\s\S]*\]", text)
+    if match:
+        try:
+            return {"actions": json.loads(match.group())}
+        except json.JSONDecodeError:
+            pass
+    return {}
+
+
 def placeholder_tool(event: Dict[str, Any]):
-    """no-op placeholder tool."""
+    """No-op placeholder tool."""
     return {
         "message": "Placeholder tool executed.",
         "string_param": event.get("string_param"),
@@ -64,91 +114,105 @@ def placeholder_tool(event: Dict[str, Any]):
     }
 
 
-# --- simulate_impact_range (mirror src/tools/simulate_impact.py) ---
-_MOCK_IMPACT = {
-    "express_allocation": {"impact_low": 0.8, "impact_mid": 1.5, "impact_high": 2.2, "confidence": 0.75, "time_to_effect_days": 3},
-    "ad_optimization": {"impact_low": 0.3, "impact_mid": 0.7, "impact_high": 1.2, "confidence": 0.6, "time_to_effect_days": 7},
-    "price_promo_adjustment": {"impact_low": 0.5, "impact_mid": 1.0, "impact_high": 1.8, "confidence": 0.65, "time_to_effect_days": 5},
-}
-
-
 def lambda_simulate_impact_range(event: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM-generated impact estimate (no mock data)."""
     action_type = (event.get("action_type") or "express_allocation").lower().replace(" ", "_")
-    if action_type not in _MOCK_IMPACT:
-        action_type = "express_allocation"
-    base = _MOCK_IMPACT[action_type].copy()
+    sku = event.get("sku")
+    region = event.get("region")
     current_daily_revenue_loss = float(event.get("current_daily_revenue_loss") or 0)
-    if current_daily_revenue_loss > 0:
-        scale = min(2.0, 1.0 + (current_daily_revenue_loss / 100000))
-        base["impact_low"] = round(base["impact_low"] * scale, 2)
-        base["impact_mid"] = round(base["impact_mid"] * scale, 2)
-        base["impact_high"] = round(base["impact_high"] * scale, 2)
-    out = {
-        "impact_low": base["impact_low"],
-        "impact_mid": base["impact_mid"],
-        "impact_high": base["impact_high"],
-        "confidence": base["confidence"],
-        "time_to_effect_days": base["time_to_effect_days"],
-        "sku": event.get("sku") or "all",
-        "region": event.get("region") or "all",
-    }
     query_params = {
         "action_type": action_type,
-        "sku": event.get("sku"),
-        "region": event.get("region"),
+        "sku": sku,
+        "region": region,
         "current_daily_revenue_loss": current_daily_revenue_loss,
+    }
+    system = """You are an impact analyst for Indian D2C/retail. Given a remediation action type and context, estimate revenue recovery in INR Lakhs.
+Respond with ONLY a valid JSON object (no markdown, no other text) with exactly these keys:
+- impact_low: number (conservative recovery in Lakhs)
+- impact_mid: number (expected recovery in Lakhs)
+- impact_high: number (optimistic recovery in Lakhs)
+- confidence: number between 0 and 1
+- time_to_effect_days: integer (days until impact is visible)
+Use context (sku, region, current_daily_revenue_loss) to inform the range. Be realistic for Indian D2C."""
+    user = f"action_type={action_type}, sku={sku or 'all'}, region={region or 'all'}, current_daily_revenue_loss={current_daily_revenue_loss}. Return JSON only."
+    try:
+        content = _invoke_bedrock(system, user)
+        parsed = _extract_json(content)
+    except Exception:
+        parsed = {}
+    impact_low = float(parsed.get("impact_low", 0))
+    impact_mid = float(parsed.get("impact_mid", 0))
+    impact_high = float(parsed.get("impact_high", 0))
+    confidence = max(0, min(1, float(parsed.get("confidence", 0.5))))
+    time_to_effect_days = max(0, int(parsed.get("time_to_effect_days", 5)))
+    out = {
+        "impact_low": impact_low,
+        "impact_mid": impact_mid,
+        "impact_high": impact_high,
+        "confidence": confidence,
+        "time_to_effect_days": time_to_effect_days,
+        "sku": sku or "all",
+        "region": region or "all",
     }
     out["evidence_trace"] = _evidence_trace("simulate_impact_range", query_params, dict(out))
     return out
 
 
-# --- map_remediation_action (mirror src/tools/map_remediation.py) ---
-_MOCK_MAPPING = {
-    "stockout": [
-        {"action_type": "express_allocation", "description": "Express transfer stock from high-inventory FC to demand region", "target_sku": None, "target_region": None, "owner_role": "Ops / Supply Chain", "effort_level": "medium", "estimated_hours": 4.0},
-        {"action_type": "price_promo_adjustment", "description": "Temporary regional promo to shift demand to in-stock SKUs", "target_sku": None, "target_region": None, "owner_role": "Growth / Marketing", "effort_level": "low", "estimated_hours": 2.0},
-    ],
-    "demand_spike": [
-        {"action_type": "express_allocation", "description": "Rush replenishment and express allocation to hotspot", "target_sku": None, "target_region": None, "owner_role": "Ops", "effort_level": "high", "estimated_hours": 8.0},
-        {"action_type": "ad_optimization", "description": "Shift ad spend to high-availability SKUs and regions", "target_sku": None, "target_region": None, "owner_role": "Marketing", "effort_level": "medium", "estimated_hours": 4.0},
-    ],
-    "conversion_drop": [
-        {"action_type": "ad_optimization", "description": "Optimize creatives and landing pages; A/B test CVR", "target_sku": None, "target_region": None, "owner_role": "Growth / Marketing", "effort_level": "medium", "estimated_hours": 6.0},
-        {"action_type": "price_promo_adjustment", "description": "Limited-time offer to recover conversion", "target_sku": None, "target_region": None, "owner_role": "Growth", "effort_level": "low", "estimated_hours": 2.0},
-    ],
-    "ad_underperformance": [
-        {"action_type": "ad_optimization", "description": "Pause underperforming campaigns; reallocate to best channels", "target_sku": None, "target_region": None, "owner_role": "Marketing", "effort_level": "low", "estimated_hours": 2.0},
-    ],
-    "pricing_issue": [
-        {"action_type": "price_promo_adjustment", "description": "Align price with competition or run targeted promo", "target_sku": None, "target_region": None, "owner_role": "Growth / Pricing", "effort_level": "medium", "estimated_hours": 4.0},
-    ],
-}
-
-
 def lambda_map_remediation_action(event: Dict[str, Any]) -> Dict[str, Any]:
+    """LLM-generated remediation actions (no mock data)."""
     root_cause_type = (event.get("root_cause_type") or "stockout").lower().replace(" ", "_")
-    if root_cause_type not in _MOCK_MAPPING:
-        root_cause_type = "stockout"
-    actions = []
-    for a in _MOCK_MAPPING[root_cause_type]:
-        row = dict(a)
-        if event.get("affected_skus"):
-            row["target_sku"] = event.get("affected_skus").split(",")[0].strip() if isinstance(event.get("affected_skus"), str) else None
-        if event.get("affected_region"):
-            row["target_region"] = event.get("affected_region")
-        actions.append(row)
-    out = {"actions": actions}
+    severity = event.get("severity", "medium")
+    affected_skus = event.get("affected_skus")
+    affected_region = event.get("affected_region")
     query_params = {
         "root_cause_type": root_cause_type,
-        "severity": event.get("severity", "medium"),
-        "affected_skus": event.get("affected_skus"),
-        "affected_region": event.get("affected_region"),
+        "severity": severity,
+        "affected_skus": affected_skus,
+        "affected_region": affected_region,
     }
-    out["evidence_trace"] = _evidence_trace("map_remediation_action", query_params, {"actions": actions})
+    system = """You are a remediation strategist for Indian D2C/retail. Given a root cause type and context, output remediation actions.
+Respond with ONLY a valid JSON object (no markdown, no other text) with one key "actions" whose value is an array of objects. Each object must have:
+- action_type: one of "express_allocation", "ad_optimization", "price_promo_adjustment"
+- description: short human-readable description
+- target_sku: string or null
+- target_region: string or null
+- owner_role: e.g. "Ops", "Marketing", "Growth"
+- effort_level: "low", "medium", or "high"
+- estimated_hours: number
+Suggest 1-3 actions per root cause. Be specific for Indian D2C."""
+    user = f"root_cause_type={root_cause_type}, severity={severity}, affected_skus={affected_skus}, affected_region={affected_region}. Return JSON only: {{\"actions\": [...]}}."
+    try:
+        content = _invoke_bedrock(system, user)
+        parsed = _extract_json(content)
+    except Exception:
+        parsed = {"actions": []}
+    actions = parsed.get("actions") or []
+    if not isinstance(actions, list):
+        actions = []
+    out_actions = []
+    for a in actions:
+        if not isinstance(a, dict):
+            continue
+        row = {
+            "action_type": (a.get("action_type") or "express_allocation").lower().replace(" ", "_"),
+            "description": a.get("description") or "",
+            "target_sku": a.get("target_sku"),
+            "target_region": a.get("target_region"),
+            "owner_role": a.get("owner_role") or "Ops",
+            "effort_level": (a.get("effort_level") or "medium").lower(),
+            "estimated_hours": float(a.get("estimated_hours", 4)),
+        }
+        if affected_skus and isinstance(affected_skus, str):
+            row["target_sku"] = affected_skus.split(",")[0].strip()
+        if affected_region:
+            row["target_region"] = affected_region
+        out_actions.append(row)
+    out = {"actions": out_actions}
+    out["evidence_trace"] = _evidence_trace("map_remediation_action", query_params, {"actions": out_actions})
     return out
 
 
-# --- assess_risk_level (mirror src/tools/assess_risk.py) ---
+# --- assess_risk_level (threshold-based; no mock data) ---
 _HIGH_RISK_INVENTORY_PERCENT = 30.0
 _HIGH_RISK_REVENUE_LAKHS = 5.0
 

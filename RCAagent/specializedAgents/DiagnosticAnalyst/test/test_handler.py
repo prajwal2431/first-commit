@@ -28,7 +28,7 @@ def test_placeholder_tool_returns_200():
     assert "message" in body["result"]
 
 
-def test_query_business_data_returns_kpi_slices():
+def test_query_business_data_returns_empty_slices_and_data_source_gap():
     event = {"metric": "all", "period": "WoW"}
     ctx = _make_context("query_business_data")
     resp = handler.lambda_handler(event, ctx)
@@ -38,7 +38,9 @@ def test_query_business_data_returns_kpi_slices():
     data = json.loads(result_str)
     assert "kpi_slices" in data
     assert "data_quality_gaps" in data
-    assert len(data["kpi_slices"]) >= 4
+    assert data["kpi_slices"] == []
+    assert len(data["data_quality_gaps"]) >= 1
+    assert data["data_quality_gaps"][0]["field_name"] == "data_source"
 
 
 def test_calculate_contribution_score_returns_ranked_drivers():

@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -8,6 +9,7 @@ def lambda_handler(event, context):
     Lambda handler for Bedrock AgentCore Gateway tools.
     Dispatches by context.client_context.custom["bedrockAgentCoreToolName"]:
     - LambdaTarget___placeholder_tool
+    - LambdaTarget___web_search
     - LambdaTarget___social_signal_analyzer
     - LambdaTarget___marketplace_api_fetcher
     - LambdaTarget___inventory_mismatch_checker
@@ -22,17 +24,18 @@ def lambda_handler(event, context):
         if not tool_name:
             return _response(400, {"error": "Missing tool name"})
 
-        if tool_name == "placeholder_tool":
-            result = placeholder_tool(event)
-        elif tool_name == "social_signal_analyzer":
-            result = lambda_social_signal_analyzer(event)
-        elif tool_name == "marketplace_api_fetcher":
-            result = lambda_marketplace_api_fetcher(event)
-        elif tool_name == "inventory_mismatch_checker":
-            result = lambda_inventory_mismatch_checker(event)
-        else:
+        dispatch = {
+            "placeholder_tool": placeholder_tool,
+            "web_search": lambda_web_search,
+            "social_signal_analyzer": lambda_social_signal_analyzer,
+            "marketplace_api_fetcher": lambda_marketplace_api_fetcher,
+            "inventory_mismatch_checker": lambda_inventory_mismatch_checker,
+        }
+        handler_fn = dispatch.get(tool_name)
+        if not handler_fn:
             return _response(400, {"error": f"Unknown tool '{tool_name}'"})
 
+        result = handler_fn(event)
         return _response(200, {"result": result})
 
     except Exception as e:
@@ -42,6 +45,15 @@ def lambda_handler(event, context):
 def _response(status_code: int, body: Dict[str, Any]):
     """Consistent JSON response wrapper."""
     return {"statusCode": status_code, "body": json.dumps(body)}
+
+
+def _evidence_trace_lambda(source_tool: str, query_params: dict, raw_data: dict) -> dict:
+    return {
+        "source_tool": source_tool,
+        "query_params": query_params,
+        "raw_data": raw_data,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def placeholder_tool(event: Dict[str, Any]):
@@ -55,157 +67,153 @@ def placeholder_tool(event: Dict[str, Any]):
     }
 
 
-# --- Mock data for social_signal_analyzer (same as src/tools/social_signal_analyzer.py) ---
-_MOCK_SIGNALS = {
-    "competitor_activity": {
-        "signals": [
-            {
-                "description": "Competitor flash sale in North India (50% off) overlapping our peak window",
-                "region": "North India",
-                "severity": "high",
-                "impact": "Traffic and CVR drop in North India likely diverted",
-            }
-        ],
-    },
-    "viral_trend": {
-        "signals": [
-            {
-                "description": "Negative viral tweet about delivery delays (12k retweets) in last 48h",
-                "region": None,
-                "severity": "medium",
-                "impact": "Sentiment and consideration may be affected",
-            }
-        ],
-    },
-    "sentiment": {
-        "signals": [
-            {
-                "description": "Brand sentiment down 8% WoW on social; complaints about OOS and late delivery",
-                "region": "North India",
-                "severity": "medium",
-                "impact": "Aligns with stockout and delivery issues",
-            }
-        ],
-    },
-    "weather": {
-        "signals": [
-            {
-                "description": "Heavy rain and flooding in Delhi NCR (regional weather disruption) last 5 days",
-                "region": "Delhi NCR",
-                "severity": "high",
-                "impact": "Logistics delays and lower footfall; regional revenue drop",
-            }
-        ],
-    },
+# ---------------------------------------------------------------------------
+# web_search: real Tavily search in Lambda
+# ---------------------------------------------------------------------------
+def lambda_web_search(event: Dict[str, Any]) -> str:
+    """Run a web search via Tavily. Returns JSON with results or error."""
+    query = event.get("query", "")
+    max_results = event.get("max_results", 5)
+    api_key = os.getenv("TAVILY_API_KEY")
+    query_params = {"query": query, "max_results": max_results}
+
+    if not api_key:
+        data = {
+            "error": "TAVILY_API_KEY not configured in Lambda environment.",
+            "results": [],
+            "query": query,
+        }
+        data["evidence_trace"] = _evidence_trace_lambda("web_search", query_params, {"error": data["error"]})
+        return json.dumps(data)
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+        response = client.search(query=query, max_results=max_results)
+        results = [
+            {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", ""), "score": r.get("score")}
+            for r in response.get("results", [])
+        ]
+        data = {"results": results, "query": query}
+        data["evidence_trace"] = _evidence_trace_lambda("web_search", query_params, data)
+        return json.dumps(data)
+    except Exception as e:
+        data = {"error": str(e), "results": [], "query": query}
+        data["evidence_trace"] = _evidence_trace_lambda("web_search", query_params, {"error": str(e)})
+        return json.dumps(data)
+
+
+# ---------------------------------------------------------------------------
+# social_signal_analyzer: web search backed
+# ---------------------------------------------------------------------------
+_SIGNAL_QUERIES = {
+    "competitor_activity": "D2C ecommerce competitor flash sale discount India {region}",
+    "viral_trend": "viral negative trend ecommerce brand India {region}",
+    "sentiment": "ecommerce brand sentiment complaints India {region}",
+    "weather": "severe weather disruption logistics India {region}",
 }
 
 
-def _evidence_trace_lambda(source_tool: str, query_params: dict, raw_data: dict) -> dict:
-    return {
-        "source_tool": source_tool,
-        "query_params": query_params,
-        "raw_data": raw_data,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+def _tavily_search_lambda(query: str, max_results: int = 5) -> dict:
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return {"error": "TAVILY_API_KEY not configured.", "results": []}
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+        response = client.search(query=query, max_results=max_results)
+        return {
+            "results": [
+                {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", ""), "score": r.get("score")}
+                for r in response.get("results", [])
+            ],
+            "query": query,
+        }
+    except Exception as e:
+        return {"error": str(e), "results": [], "query": query}
 
 
 def lambda_social_signal_analyzer(event: Dict[str, Any]) -> str:
-    """Same mock logic as src/tools/social_signal_analyzer; returns JSON string."""
+    """Web-search-backed social signal analyzer."""
     signal_type = (event.get("signal_type") or "competitor_activity").lower().replace(" ", "_")
-    if signal_type not in _MOCK_SIGNALS:
+    if signal_type not in _SIGNAL_QUERIES:
         signal_type = "competitor_activity"
-    region = event.get("region")
+    region = event.get("region") or "all regions"
     timeframe = event.get("timeframe", "7d")
 
-    data = dict(_MOCK_SIGNALS[signal_type])
-    query_params = {"signal_type": signal_type, "region": region, "timeframe": timeframe}
-    data["query_params_used"] = query_params
-    raw_for_trace = dict(data)
+    search_query = _SIGNAL_QUERIES[signal_type].format(region=region) + f" last {timeframe}"
+    query_params = {"signal_type": signal_type, "region": event.get("region"), "timeframe": timeframe, "search_query": search_query}
+    search_result = _tavily_search_lambda(search_query)
+
+    if search_result.get("error"):
+        data = {"signals": [], "search_status": "unavailable", "reason": search_result["error"], "query_params_used": query_params}
+        data["evidence_trace"] = _evidence_trace_lambda("social_signal_analyzer", query_params, {"search_error": search_result["error"]})
+        return json.dumps(data)
+
+    signals = [
+        {"description": r.get("content", r.get("title", ""))[:500], "region": event.get("region"), "severity": "unknown", "source_url": r.get("url", ""), "source_title": r.get("title", "")}
+        for r in search_result.get("results", [])
+    ]
+    if not signals:
+        data = {"signals": [], "search_status": "no_results", "reason": f"No results for: {search_query}", "query_params_used": query_params}
+        data["evidence_trace"] = _evidence_trace_lambda("social_signal_analyzer", query_params, {"search_results_count": 0})
+        return json.dumps(data)
+
+    raw_for_trace = {"search_results_count": len(signals), "search_query": search_query}
+    data = {"signals": signals, "search_status": "ok", "query_params_used": query_params}
     data["evidence_trace"] = _evidence_trace_lambda("social_signal_analyzer", query_params, raw_for_trace)
     return json.dumps(data)
 
 
-# --- Mock data for marketplace_api_fetcher ---
-_MOCK_MARKETPLACE = {
-    "myntra": {
-        "sync_latency": {"status": "warning", "latency_ms": 15120000, "details": "Catalog sync delay ~4.2 hours"},
-        "buybox_status": {"status": "ok", "latency_ms": None, "details": "Buybox held"},
-        "listing_health": {"status": "warning", "latency_ms": None, "details": "3 listings suppressed for image mismatch"},
-    },
-    "amazon": {
-        "sync_latency": {"status": "ok", "latency_ms": 300000, "details": "~5 min sync"},
-        "buybox_status": {"status": "error", "latency_ms": None, "details": "Buybox lost on top 3 SKUs (price undercut)"},
-        "listing_health": {"status": "ok", "latency_ms": None, "details": "Listings live"},
-    },
-    "shopify": {
-        "sync_latency": {"status": "ok", "latency_ms": 120000, "details": "~2 min sync"},
-        "buybox_status": {"status": "ok", "latency_ms": None, "details": "N/A (direct)"},
-        "listing_health": {"status": "ok", "latency_ms": None, "details": "All listings healthy"},
-    },
+# ---------------------------------------------------------------------------
+# marketplace_api_fetcher: web search backed
+# ---------------------------------------------------------------------------
+_MARKETPLACE_QUERIES = {
+    "myntra": {"sync_latency": "Myntra seller catalog sync delay issues India", "buybox_status": "Myntra seller Buybox loss India", "listing_health": "Myntra listing suppressed India seller"},
+    "amazon": {"sync_latency": "Amazon India seller catalog sync delay", "buybox_status": "Amazon India Buybox loss price undercut", "listing_health": "Amazon India listing suppressed deactivated"},
+    "shopify": {"sync_latency": "Shopify India store sync delay issues", "buybox_status": "Shopify India seller pricing competition", "listing_health": "Shopify India listing issues product removed"},
 }
 
 
 def lambda_marketplace_api_fetcher(event: Dict[str, Any]) -> str:
-    """Same mock logic as src/tools/marketplace_api_fetcher; returns JSON string."""
+    """Web-search-backed marketplace checker."""
     platform = (event.get("platform") or "myntra").lower()
     check_type = (event.get("check_type") or "sync_latency").lower().replace(" ", "_")
-    if platform not in _MOCK_MARKETPLACE:
+    if platform not in _MARKETPLACE_QUERIES:
         platform = "myntra"
     if check_type not in ("sync_latency", "buybox_status", "listing_health"):
         check_type = "sync_latency"
 
-    row = dict(_MOCK_MARKETPLACE[platform][check_type])
-    row["platform"] = platform
-    row["check_type"] = check_type
-    raw_for_trace = dict(row)
-    row["evidence_trace"] = _evidence_trace_lambda("marketplace_api_fetcher", {"platform": platform, "check_type": check_type}, raw_for_trace)
-    return json.dumps(row)
+    search_query = _MARKETPLACE_QUERIES.get(platform, {}).get(check_type, f"{platform} {check_type} issues India")
+    query_params = {"platform": platform, "check_type": check_type, "search_query": search_query}
+    search_result = _tavily_search_lambda(search_query)
+
+    if search_result.get("error"):
+        data = {"platform": platform, "check_type": check_type, "status": "unavailable", "details": f"Web search unavailable: {search_result['error']}", "latency_ms": None, "findings": []}
+        data["evidence_trace"] = _evidence_trace_lambda("marketplace_api_fetcher", query_params, {"search_error": search_result["error"]})
+        return json.dumps(data)
+
+    findings = [{"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")[:500]} for r in search_result.get("results", [])]
+    if not findings:
+        data = {"platform": platform, "check_type": check_type, "status": "no_data", "details": f"No results for: {search_query}", "latency_ms": None, "findings": []}
+        data["evidence_trace"] = _evidence_trace_lambda("marketplace_api_fetcher", query_params, {"search_results_count": 0})
+        return json.dumps(data)
+
+    raw_for_trace = {"search_results_count": len(findings), "search_query": search_query}
+    data = {"platform": platform, "check_type": check_type, "status": "searched", "details": f"Found {len(findings)} results.", "latency_ms": None, "findings": findings}
+    data["evidence_trace"] = _evidence_trace_lambda("marketplace_api_fetcher", query_params, raw_for_trace)
+    return json.dumps(data)
 
 
-# --- Mock data for inventory_mismatch_checker ---
-_MOCK_MISMATCHES = [
-    {
-        "sku": "SKU-1234",
-        "demand_region": "Delhi",
-        "stock_region": "Mumbai",
-        "demand_units": 800,
-        "available_units": 650,
-        "mismatch_severity": "high",
-        "details": "Demand high in Delhi; 650 units stuck in Mumbai warehouse, transfer 3–5 days",
-    },
-    {
-        "sku": "SKU-5678",
-        "demand_region": "Bangalore",
-        "stock_region": "Chennai",
-        "demand_units": 420,
-        "available_units": 380,
-        "mismatch_severity": "medium",
-        "details": "Bangalore demand spike; stock in Chennai, 1–2 day transfer",
-    },
-]
-
-
+# ---------------------------------------------------------------------------
+# inventory_mismatch_checker: requires real data source
+# ---------------------------------------------------------------------------
 def lambda_inventory_mismatch_checker(event: Dict[str, Any]) -> str:
-    """Same mock logic as src/tools/inventory_mismatch_checker; returns JSON string."""
-    sku = event.get("sku")
-    demand_region = event.get("demand_region")
-    stock_region = event.get("stock_region")
-    query_params = {"sku": sku, "demand_region": demand_region, "stock_region": stock_region}
-    out = []
-
-    for m in _MOCK_MISMATCHES:
-        if sku and m["sku"] != sku:
-            continue
-        if demand_region and m["demand_region"] != demand_region:
-            continue
-        if stock_region and m["stock_region"] != stock_region:
-            continue
-        row = dict(m)
-        raw_for_trace = dict(row)
-        row["evidence_trace"] = _evidence_trace_lambda("inventory_mismatch_checker", query_params, raw_for_trace)
-        out.append(row)
-
-    payload = {"mismatches": out, "query_params_used": query_params}
-    raw_for_trace = dict(payload)
-    payload["evidence_trace"] = _evidence_trace_lambda("inventory_mismatch_checker", query_params, raw_for_trace)
-    return json.dumps(payload)
+    """Inventory mismatch checker — no mock data, reports no data source connected."""
+    query_params = {"sku": event.get("sku"), "demand_region": event.get("demand_region"), "stock_region": event.get("stock_region")}
+    no_data = {
+        "status": "no_data_source",
+        "reason": "No inventory/WMS data source connected in Lambda. Connect an inventory data source to enable this tool.",
+    }
+    data = {"mismatches": [], "query_params_used": query_params, **no_data}
+    data["evidence_trace"] = _evidence_trace_lambda("inventory_mismatch_checker", query_params, no_data)
+    return json.dumps(data)

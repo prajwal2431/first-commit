@@ -7,6 +7,7 @@ from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_to
 from .tools.social_signal_analyzer import social_signal_analyzer
 from .tools.marketplace_api_fetcher import marketplace_api_fetcher
 from .tools.inventory_mismatch_checker import inventory_mismatch_checker
+from .tools.web_search import web_search
 from .model.load import load_model
 
 if os.getenv("LOCAL_DEV") == "1":
@@ -18,8 +19,8 @@ else:
 
 llm = load_model()
 
-# Contextual Scout tools (required by create_scout_graph)
-SCOUT_TOOLS = [social_signal_analyzer, marketplace_api_fetcher, inventory_mismatch_checker]
+# Contextual Scout tools (required by create_scout_graph + web_search for ad-hoc research)
+SCOUT_TOOLS = [social_signal_analyzer, marketplace_api_fetcher, inventory_mismatch_checker, web_search]
 
 app = BedrockAgentCoreApp()
 

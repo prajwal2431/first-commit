@@ -15,12 +15,17 @@ os.environ["LOCAL_DEV"] = "1"
 
 
 class TestSimulateImpactRange:
-    """Test simulate_impact_range tool output structure."""
+    """Test simulate_impact_range tool output structure (LLM-backed; mock LLM in tests)."""
 
     def test_returns_impact_range_and_evidence_trace(self):
-        from src.tools.simulate_impact import simulate_impact_range
+        from src.tools.simulate_impact import make_simulate_impact_range_tool
 
-        out = simulate_impact_range.invoke({
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content='{"impact_low": 0.5, "impact_mid": 1.0, "impact_high": 1.5, "confidence": 0.7, "time_to_effect_days": 5}'
+        )
+        tool = make_simulate_impact_range_tool(mock_llm)
+        out = tool.invoke({
             "action_type": "express_allocation",
             "sku": "kurta",
             "region": "Delhi",
@@ -32,22 +37,32 @@ class TestSimulateImpactRange:
         assert data["evidence_trace"]["source_tool"] == "simulate_impact_range"
 
     def test_accepts_ad_optimization_and_price_promo(self):
-        from src.tools.simulate_impact import simulate_impact_range
+        from src.tools.simulate_impact import make_simulate_impact_range_tool
 
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content='{"impact_low": 0.3, "impact_mid": 0.7, "impact_high": 1.0, "confidence": 0.6, "time_to_effect_days": 7}'
+        )
+        tool = make_simulate_impact_range_tool(mock_llm)
         for action_type in ("ad_optimization", "price_promo_adjustment"):
-            out = simulate_impact_range.invoke({"action_type": action_type})
+            out = tool.invoke({"action_type": action_type})
             data = json.loads(out)
             assert data["impact_mid"] >= 0
             assert 0 <= data["confidence"] <= 1
 
 
 class TestMapRemediationAction:
-    """Test map_remediation_action tool output structure."""
+    """Test map_remediation_action tool output structure (LLM-backed; mock LLM in tests)."""
 
     def test_returns_actions_list_and_evidence_trace(self):
-        from src.tools.map_remediation import map_remediation_action
+        from src.tools.map_remediation import make_map_remediation_action_tool
 
-        out = map_remediation_action.invoke({
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content='{"actions": [{"action_type": "express_allocation", "description": "Transfer stock", "target_sku": null, "target_region": null, "owner_role": "Ops", "effort_level": "medium", "estimated_hours": 4.0}]}'
+        )
+        tool = make_map_remediation_action_tool(mock_llm)
+        out = tool.invoke({
             "root_cause_type": "stockout",
             "severity": "high",
         })
@@ -60,10 +75,15 @@ class TestMapRemediationAction:
             assert "effort_level" in a and "estimated_hours" in a
 
     def test_maps_demand_spike_and_pricing_issue(self):
-        from src.tools.map_remediation import map_remediation_action
+        from src.tools.map_remediation import make_map_remediation_action_tool
 
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = MagicMock(
+            content='{"actions": [{"action_type": "express_allocation", "description": "Rush replenishment", "target_sku": null, "target_region": null, "owner_role": "Ops", "effort_level": "high", "estimated_hours": 8.0}]}'
+        )
+        tool = make_map_remediation_action_tool(mock_llm)
         for rc in ("demand_spike", "pricing_issue"):
-            out = map_remediation_action.invoke({"root_cause_type": rc})
+            out = tool.invoke({"root_cause_type": rc})
             data = json.loads(out)
             assert len(data["actions"]) >= 1
 

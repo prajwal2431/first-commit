@@ -2,7 +2,7 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 LAMBDA_DIR = Path(__file__).resolve().parent.parent / "mcp" / "lambda"
 if str(LAMBDA_DIR) not in sys.path:
@@ -30,7 +30,8 @@ def test_placeholder_tool_returns_200():
 def test_simulate_impact_range_returns_impact_and_evidence():
     event = {"action_type": "express_allocation", "sku": "kurta", "region": "Delhi"}
     ctx = _make_context("simulate_impact_range")
-    resp = handler.lambda_handler(event, ctx)
+    with patch.object(handler, "_invoke_bedrock", return_value='{"impact_low": 0.5, "impact_mid": 1.0, "impact_high": 1.5, "confidence": 0.7, "time_to_effect_days": 5}'):
+        resp = handler.lambda_handler(event, ctx)
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     result = body["result"]
@@ -41,7 +42,12 @@ def test_simulate_impact_range_returns_impact_and_evidence():
 def test_map_remediation_action_returns_actions():
     event = {"root_cause_type": "stockout", "severity": "high"}
     ctx = _make_context("map_remediation_action")
-    resp = handler.lambda_handler(event, ctx)
+    with patch.object(
+        handler,
+        "_invoke_bedrock",
+        return_value='{"actions": [{"action_type": "express_allocation", "description": "Transfer stock", "target_sku": null, "target_region": null, "owner_role": "Ops", "effort_level": "medium", "estimated_hours": 4.0}]}',
+    ):
+        resp = handler.lambda_handler(event, ctx)
     assert resp["statusCode"] == 200
     body = json.loads(resp["body"])
     result = body["result"]
