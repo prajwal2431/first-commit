@@ -6,6 +6,7 @@ import { OrderRecord } from '../models/OrderRecord';
 import { InventoryRecord } from '../models/InventoryRecord';
 import { generateChatResponse } from '../services/analysis/narrator';
 import { runFullAnalysis } from '../services/analysis/runAnalysis';
+import { invokeRCAAgent } from '../services/rca/rcaAgentClient';
 
 const router = Router();
 
@@ -49,56 +50,78 @@ router.post('/message', async (req: Request, res: Response) => {
 
     const lowerMsg = message.toLowerCase();
     let responseText = '';
-    let responseType = 'help';
+    let responseType = 'analysis';
 
-    if (isAnalysisQuery(lowerMsg)) {
-      const result = await runFullAnalysis(String(session._id), orgId);
-      responseText = generateChatResponse(message, result);
-      responseType = 'analysis';
-    } else if (isDataQuery(lowerMsg)) {
-      responseText = await handleDataQuery(orgId, lowerMsg);
-      responseType = 'data';
-    } else {
-      const dashboard = await DashboardState.findOne({ organizationId: orgId }).lean();
-      if (dashboard && dashboard.liveSignals.length > 0) {
-        const relevantSignals = dashboard.liveSignals
-          .filter((s: any) => {
-            const title = (s.title || '').toLowerCase();
-            const desc = (s.description || '').toLowerCase();
-            return lowerMsg.split(' ').some((word: string) =>
-              word.length > 3 && (title.includes(word) || desc.includes(word))
-            );
-          })
-          .slice(0, 3);
+    const useRcaAgent = process.env.USE_RCA_AGENT_FOR_CHAT !== 'false';
 
-        if (relevantSignals.length > 0) {
-          responseText = [
-            `Based on current monitoring data, here's what I found:`,
-            '',
-            ...relevantSignals.map((s: any) =>
-              `- **[${(s.severity || '').toUpperCase()}]** ${s.title}: ${s.description}`
-            ),
-            '',
-            `Would you like me to run a detailed root cause analysis? Try asking: "${relevantSignals[0]?.suggestedQuery ?? 'Why is this happening?'}"`,
-          ].join('\n');
-          responseType = 'signals';
-        }
+    if (useRcaAgent) {
+      try {
+        const agentResult = await invokeRCAAgent({
+          prompt: message,
+          orgId,
+          sessionId: String(session._id),
+          actorId: 'chat',
+          extraContext: {
+            last_message_role: 'user',
+          },
+        });
+        responseText = agentResult.result;
+        responseType = 'analysis';
+      } catch (agentError) {
+        console.error('RCAagent invocation failed, falling back to template responder:', agentError);
       }
+    }
 
-      if (!responseText) {
-        responseText = [
-          `I can help you understand your business performance. Here are things I can do:`,
-          '',
-          `- **Analyze anomalies**: "Why is revenue dropping despite high traffic?"`,
-          `- **Check inventory**: "Which SKUs are out of stock?"`,
-          `- **Review operations**: "What is our return rate?"`,
-          `- **Understand trends**: "Show me revenue trends for the last week"`,
-          '',
-          dashboard?.liveSignals?.length
-            ? `I currently see ${dashboard.liveSignals.length} active signals. Ask me about any of them!`
-            : `Upload data through the Sources page to get started with analysis.`,
-        ].join('\n');
-        responseType = 'help';
+    if (!responseText) {
+      if (isAnalysisQuery(lowerMsg)) {
+        const result = await runFullAnalysis(String(session._id), orgId);
+        responseText = generateChatResponse(message, result);
+        responseType = 'analysis';
+      } else if (isDataQuery(lowerMsg)) {
+        responseText = await handleDataQuery(orgId, lowerMsg);
+        responseType = 'data';
+      } else {
+        const dashboard = await DashboardState.findOne({ organizationId: orgId }).lean();
+        if (dashboard && dashboard.liveSignals.length > 0) {
+          const relevantSignals = dashboard.liveSignals
+            .filter((s: any) => {
+              const title = (s.title || '').toLowerCase();
+              const desc = (s.description || '').toLowerCase();
+              return lowerMsg.split(' ').some((word: string) =>
+                word.length > 3 && (title.includes(word) || desc.includes(word))
+              );
+            })
+            .slice(0, 3);
+
+          if (relevantSignals.length > 0) {
+            responseText = [
+              `Based on current monitoring data, here's what I found:`,
+              '',
+              ...relevantSignals.map((s: any) =>
+                `- **[${(s.severity || '').toUpperCase()}]** ${s.title}: ${s.description}`
+              ),
+              '',
+              `Would you like me to run a detailed root cause analysis? Try asking: "${relevantSignals[0]?.suggestedQuery ?? 'Why is this happening?'}"`,
+            ].join('\n');
+            responseType = 'signals';
+          }
+        }
+
+        if (!responseText) {
+          responseText = [
+            `I can help you understand your business performance. Here are things I can do:`,
+            '',
+            `- **Analyze anomalies**: "Why is revenue dropping despite high traffic?"`,
+            `- **Check inventory**: "Which SKUs are out of stock?"`,
+            `- **Review operations**: "What is our return rate?"`,
+            `- **Understand trends**: "Show me revenue trends for the last week"`,
+            '',
+            dashboard?.liveSignals?.length
+              ? `I currently see ${dashboard.liveSignals.length} active signals. Ask me about any of them!`
+              : `Upload data through the Sources page to get started with analysis.`,
+          ].join('\n');
+          responseType = 'help';
+        }
       }
     }
 
