@@ -73,6 +73,7 @@ interface DashboardState {
 
     fetchDashboard: () => Promise<void>;
     refreshDashboard: () => Promise<void>;
+    addAnomaly: (anomaly: LiveSignal) => void;
 }
 
 export const useDashboardStore = create<DashboardState>((set) => ({
@@ -82,6 +83,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     lastComputedAt: null,
     isLoading: false,
     hasData: false,
+
+    addAnomaly: (anomaly: LiveSignal) => set((state) => ({ liveSignals: [anomaly, ...state.liveSignals], hasData: true })),
 
     fetchDashboard: async () => {
         set({ isLoading: true });

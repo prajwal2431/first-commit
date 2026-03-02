@@ -17,7 +17,7 @@ const DashboardPage: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, y: -20 }}
-            className="space-y-8"
+            className="space-y-8 px-0"
         >
             <div className="grid grid-cols-12 gap-6">
                 <RevenueAtRiskChart />

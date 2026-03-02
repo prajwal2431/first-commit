@@ -8,7 +8,9 @@ interface ChatState {
     messagesBySession: Record<string, ChatMessage[]>;
     activeSessionId: string | null;
     isTyping: boolean;
+    isChatOpen: boolean;
 
+    setChatOpen: (isOpen: boolean) => void;
     setActiveSession: (sessionId: string | null) => void;
     sendMessage: (sessionId: string, text: string) => Promise<void>;
     loadMessages: (sessionId: string) => Promise<void>;
@@ -21,7 +23,9 @@ export const useChatStore = create<ChatState>()(
             messagesBySession: {},
             activeSessionId: null,
             isTyping: false,
+            isChatOpen: true,
 
+            setChatOpen: (isOpen) => set({ isChatOpen: isOpen }),
             setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
 
             loadMessages: async (sessionId: string) => {
