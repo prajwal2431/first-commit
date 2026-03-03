@@ -71,11 +71,36 @@ export const DEFAULT_THRESHOLDS: SignalThresholds = {
     skuSpikeMinMultiplier: 2.0,
 };
 
+export interface ProactiveConfig {
+    enabled: boolean;
+    alertEmails: string[];           // primary recipients
+    escalationEmails: string[];      // escalation tier recipients
+    scheduledBriefTime: string;      // cron expression, default '0 6 * * *'
+    throttleMinutes: number;         // min gap between signal-triggered runs, default 30
+    escalationHours: number;         // hours before unresolved critical escalates, default 4
+    enableTrendDetection: boolean;
+    enablePredictions: boolean;
+    enableSuggestedQuestions: boolean;
+}
+
+export const DEFAULT_PROACTIVE_CONFIG: ProactiveConfig = {
+    enabled: false,
+    alertEmails: [],
+    escalationEmails: [],
+    scheduledBriefTime: '0 6 * * *',
+    throttleMinutes: 30,
+    escalationHours: 4,
+    enableTrendDetection: true,
+    enablePredictions: true,
+    enableSuggestedQuestions: true,
+};
+
 export interface IOrgSettings extends Document {
     organizationId: string;
     departments: Department[];
     smtp: SmtpConfig | null;
     thresholds: SignalThresholds;
+    proactiveConfig?: ProactiveConfig;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -105,6 +130,10 @@ const orgSettingsSchema = new Schema<IOrgSettings>(
         thresholds: {
             type: Schema.Types.Mixed,
             default: () => ({ ...DEFAULT_THRESHOLDS }),
+        },
+        proactiveConfig: {
+            type: Schema.Types.Mixed,
+            default: () => ({ ...DEFAULT_PROACTIVE_CONFIG }),
         },
     },
     { timestamps: true }
