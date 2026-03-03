@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import PageHeader from './PageHeader';
 import BackgroundAurora from '../ui/BackgroundAurora';
@@ -8,6 +8,8 @@ import { motion } from 'framer-motion';
 
 const AppShell: React.FC = () => {
     const { width } = useSidebarStore();
+    const location = useLocation();
+    const isIntelligencePage = location.pathname.includes('/dashboard/intelligence');
 
     return (
         <div className="min-h-screen min-h-[100vh] relative flex overflow-hidden bg-[#FAFAFA]">
@@ -24,7 +26,7 @@ const AppShell: React.FC = () => {
             >
                 <PageHeader />
                 <div className="w-full flex-1 flex flex-col pt-0 pb-0 overflow-hidden">
-                    <div id="main-scroll" className="flex-1 w-full overflow-y-auto min-h-0 relative flex flex-col">
+                    <div id="main-scroll" className={`flex-1 w-full overflow-y-auto min-h-0 relative flex flex-col ${isIntelligencePage ? '' : 'p-6 lg:p-8'}`}>
                         <Outlet />
                     </div>
                 </div>
