@@ -92,6 +92,28 @@ resource "aws_iam_role_policy_attachment" "mcp_lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Allow MCP Lambda to call Bedrock for LLM-based tools (simulate_impact_range, map_remediation_action)
+resource "aws_iam_role_policy" "mcp_lambda_bedrock_invoke" {
+  role = aws_iam_role.mcp_lambda_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "BedrockInvokeModel"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ]
+        Resource = [
+          "arn:aws:bedrock:${data.aws_region.current.name}::foundation-model/*",
+          "arn:aws:bedrock:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:*"
+        ]
+      }
+    ]
+  })
+}
+
 ################################################################################
 # AgentCore Gateway Roles
 ################################################################################
@@ -209,6 +231,99 @@ resource "aws_bedrockagentcore_gateway_target" "agentcore_gateway_lambda_target"
                 items {
                   type = "number"
                 }
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "simulate_impact_range"
+            description = "Estimate revenue recovery (INR Lakhs) for a remediation action. Returns impact_low, impact_mid, impact_high, confidence, time_to_effect_days, evidence_trace."
+            input_schema {
+              type        = "object"
+              description = "Input for simulate_impact_range"
+              property {
+                name        = "action_type"
+                type        = "string"
+                description = "express_allocation | ad_optimization | price_promo_adjustment"
+              }
+              property {
+                name        = "sku"
+                type        = "string"
+                description = "Optional SKU (e.g. kurta, moisturizer, earbuds)"
+              }
+              property {
+                name        = "region"
+                type        = "string"
+                description = "Optional region (e.g. Delhi, Mumbai, Bangalore)"
+              }
+              property {
+                name        = "current_daily_revenue_loss"
+                type        = "number"
+                description = "Optional current daily revenue loss in INR"
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "map_remediation_action"
+            description = "Map root cause to remediation paths: Express Allocation, Ad Optimization, or Price/Promo. Returns actions list and evidence_trace."
+            input_schema {
+              type        = "object"
+              description = "Input for map_remediation_action"
+              property {
+                name        = "root_cause_type"
+                type        = "string"
+                description = "stockout | demand_spike | conversion_drop | ad_underperformance | pricing_issue"
+              }
+              property {
+                name        = "severity"
+                type        = "string"
+                description = "low | medium | high. Default: medium"
+              }
+              property {
+                name        = "affected_skus"
+                type        = "string"
+                description = "Optional comma-separated SKUs"
+              }
+              property {
+                name        = "affected_region"
+                type        = "string"
+                description = "Optional affected region"
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "assess_risk_level"
+            description = "Assess risk for an action; sets requires_approval for high-risk (e.g. large stock clear). Returns risk_level, requires_approval, risk_factors, evidence_trace."
+            input_schema {
+              type        = "object"
+              description = "Input for assess_risk_level"
+              property {
+                name        = "action_type"
+                type        = "string"
+                description = "express_allocation | ad_optimization | price_promo_adjustment"
+              }
+              property {
+                name        = "affected_inventory_percent"
+                type        = "number"
+                description = "Share of inventory affected (0-100)"
+              }
+              property {
+                name        = "revenue_at_stake"
+                type        = "number"
+                description = "Revenue impact in INR Lakhs"
+              }
+              property {
+                name        = "action_scope"
+                type        = "string"
+                description = "single_sku | category | all"
               }
             }
           }

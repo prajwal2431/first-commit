@@ -1,1 +1,2 @@
-# Add requirements needed for the lambda handler. For example boto3
+# Lambda handler uses only Python stdlib (csv, io, json, re, urllib.request).
+# No third-party packages required. Add any extra deps here if needed (e.g. boto3).

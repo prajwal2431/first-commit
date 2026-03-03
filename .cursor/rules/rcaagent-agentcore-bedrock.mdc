@@ -24,9 +24,9 @@ alwaysApply: false
 - Runtime gets **`GATEWAY_URL`** and **`MEMORY_ID`** as env vars. Gateway uses Cognito for inbound auth and invokes the MCP Lambda for tools.
 
 ## Memory (LangGraph)
-- **AgentCoreMemorySaver**: checkpoint persistence (messages, graph state).
-- **AgentCoreMemoryStore**: long-term conversational memory and search.
-- Pass **Memory ID** and use `actor_id` / `thread_id` in RunnableConfig when invoking the graph.
+- **Checkpoint:** Use **AgentCoreMemorySaver** with `MEMORY_ID` for short-term persistence (messages, graph state). Pass to `compile(checkpointer=...)` and use `actor_id` / `thread_id` in config when invoking. See **rcaagent-memory-concepts.mdc** for Checkpoint, Store, and Middleware.
+- **Store:** **AgentCoreMemoryStore** (same `MEMORY_ID`) for long-term conversational memory and search — use when cross-session recall is needed.
+- **Middleware:** Pre/post model hooks (e.g. `before_model`, `after_model`) for validation, token limits, metrics, human-in-the-loop — see memory-concepts rule; not yet used in this project.
 
 ## References
 - [AgentCore Memory + LangChain/LangGraph](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-integrate-lang.html)

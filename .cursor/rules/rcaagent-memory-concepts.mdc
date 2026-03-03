@@ -1,0 +1,33 @@
+---
+description: Agent memory — checkpoint, store, middleware (pre/post model hooks)
+globs: RCAagent/**/*.py
+alwaysApply: false
+---
+
+# Agent Memory Concepts (Checkpoint, Store, Middleware)
+
+## Checkpoint (short-term / session persistence)
+- **Purpose:** Persist graph execution state and message history per conversation (thread). Enables multi-turn and resume.
+- **Implementation:** **`AgentCoreMemorySaver`** from `langgraph_checkpoint_aws`, created with `memory_id=MEMORY_ID` (and optional `region_name`). Pass to **`builder.compile(checkpointer=checkpointer)`** when building the LangGraph.
+- **Usage:** Set env **`MEMORY_ID`** (e.g. from Terraform). In `invoke`, pass **`config={"configurable": {"thread_id": ..., "actor_id": ...}}`** to `graph.ainvoke(state, config=config)` so checkpoints are keyed by thread/actor. Use **lazy init** (e.g. `_get_checkpointer()`) so the app runs without the package when `MEMORY_ID` is unset.
+- **In this project:** Root RCAagent (`src/main.py`) uses `AgentCoreMemorySaver` when `MEMORY_ID` is set; specialized agents (DiagnosticAnalyst, ContextualScout, RemediationStrategist) currently pass `checkpointer=None` — add the same pattern there if they need session memory.
+
+## Store (long-term / semantic memory)
+- **Purpose:** Save and search conversational memory across sessions (e.g. user preferences, extracted facts). Bedrock can use it for intelligent long-term recall.
+- **Implementation:** **`AgentCoreMemoryStore`** from `langgraph_checkpoint_aws`, created with `memory_id=MEMORY_ID`. Use for storing/retrieving messages or insights; integrate with graph or tools as needed.
+- **In this project:** Not used yet. Add when long-term memory or semantic search across conversations is required.
+
+## Middleware (pre model hook, post model hook)
+- **Purpose:** Run logic **before** and **after** each model (LLM) call: validation, token/context trimming, metrics, safety checks, human-in-the-loop.
+- **Concepts:**
+  - **Before model:** Input validation, token/context limits, message trimming, rerouting. Can mutate state or short-circuit.
+  - **After model:** Output validation, anomaly detection, metrics (e.g. OpenTelemetry), human approval for critical actions.
+- **Implementation:** LangGraph supports middleware hooks (e.g. `before_model`, `after_model`) on the graph or agent; see LangChain/LangGraph docs for the current API (decorator or class-based). Hooks run sequentially and can be composed.
+- **In this project:** Not used yet. Add when you need cross-cutting behavior around every model call (e.g. audit logging, token caps, approval gates).
+
+## Summary
+| Concept    | Role                          | Used in project? |
+|-----------|--------------------------------|------------------|
+| Checkpoint| Short-term state per thread    | Yes (root agent) |
+| Store     | Long-term semantic memory      | No               |
+| Middleware| Pre/post model hooks           | No               |

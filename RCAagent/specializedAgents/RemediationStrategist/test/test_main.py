@@ -11,8 +11,6 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-os.environ["LOCAL_DEV"] = "1"
-
 
 class TestSimulateImpactRange:
     """Test simulate_impact_range tool output structure (LLM-backed; mock LLM in tests)."""

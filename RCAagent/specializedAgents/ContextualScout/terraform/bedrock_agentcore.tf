@@ -213,6 +213,100 @@ resource "aws_bedrockagentcore_gateway_target" "agentcore_gateway_lambda_target"
             }
           }
         }
+
+        tool_schema {
+          inline_payload {
+            name        = "web_search"
+            description = "Run a web search (Tavily). Use for ad-hoc research on external factors. Returns JSON with results or error."
+            input_schema {
+              type        = "object"
+              description = "Input for web_search"
+              property {
+                name        = "query"
+                type        = "string"
+                description = "Search query string."
+              }
+              property {
+                name        = "max_results"
+                type        = "integer"
+                description = "Max number of results to return. Default 5."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "social_signal_analyzer"
+            description = "Correlate external social/market signals (competitor activity, viral trends, sentiment, weather) via web search. Returns signals with evidence trace."
+            input_schema {
+              type        = "object"
+              description = "Input for social_signal_analyzer"
+              property {
+                name        = "signal_type"
+                type        = "string"
+                description = "One of: competitor_activity, viral_trend, sentiment, weather. Default: competitor_activity."
+              }
+              property {
+                name        = "region"
+                type        = "string"
+                description = "Region filter (e.g. North India, all regions)."
+              }
+              property {
+                name        = "timeframe"
+                type        = "string"
+                description = "Time window (e.g. 7d). Default: 7d."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "marketplace_api_fetcher"
+            description = "Check marketplace health (sync latency, buybox status, listing health) for Myntra/Amazon/Shopify via web search. Returns findings with evidence trace."
+            input_schema {
+              type        = "object"
+              description = "Input for marketplace_api_fetcher"
+              property {
+                name        = "platform"
+                type        = "string"
+                description = "Marketplace: myntra, amazon, or shopify. Default: myntra."
+              }
+              property {
+                name        = "check_type"
+                type        = "string"
+                description = "One of: sync_latency, buybox_status, listing_health. Default: sync_latency."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "inventory_mismatch_checker"
+            description = "Check inventory/supply chain mismatches (demand vs stock by region). Requires connected inventory/WMS data source; returns no_data_source if not connected."
+            input_schema {
+              type        = "object"
+              description = "Input for inventory_mismatch_checker"
+              property {
+                name        = "sku"
+                type        = "string"
+                description = "Optional SKU to check."
+              }
+              property {
+                name        = "demand_region"
+                type        = "string"
+                description = "Optional demand region."
+              }
+              property {
+                name        = "stock_region"
+                type        = "string"
+                description = "Optional stock region."
+              }
+            }
+          }
+        }
       }
     }
   }

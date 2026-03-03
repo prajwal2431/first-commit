@@ -15,6 +15,7 @@ requires-python = ">=3.10"
 dependencies = [
     "bedrock-agentcore >= 1.0.3",
     "langchain >= 1.0.3",
+    "langgraph-checkpoint-aws >= 0.1.0",
     "langchain-mcp-adapters >= 0.1.11",
     "langchain_aws >= 1.0.0",
     "langgraph >= 1.0.2",

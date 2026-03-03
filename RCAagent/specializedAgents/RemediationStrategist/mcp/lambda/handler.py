@@ -4,8 +4,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-# Default model for LLM-based tools (override with BEDROCK_MODEL_ID)
-DEFAULT_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-v2:0")
+# Default model for LLM-based tools (override with BEDROCK_MODEL_ID).
+# Uses Nova Lite to match the RemediationStrategist runtime (src/model/load.py). The Lambda runs in a
+# separate process from the agent container; when we added LLM-based tools here, the default was set
+# to Claude. We now use Nova Lite so tool outputs (simulate_impact_range, map_remediation_action) use
+# the same model as the rest of the agent.
+DEFAULT_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-lite-v1:0")
 
 
 def lambda_handler(event, context):
@@ -59,18 +63,30 @@ def _evidence_trace(source_tool: str, query_params: Dict[str, Any], raw_data: Di
 
 
 def _invoke_bedrock(system: str, user: str, model_id: str | None = None) -> str:
-    """Call Bedrock Converse/InvokeModel and return assistant text."""
+    """Call Bedrock InvokeModel and return assistant text. Uses Nova messages-v1 schema when model is Nova."""
     import boto3
 
     model_id = model_id or DEFAULT_MODEL_ID
     client = boto3.client("bedrock-runtime")
-    # Claude Messages API body
-    body = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
-        "system": system,
-        "messages": [{"role": "user", "content": user}],
-    }
+
+    is_nova = "nova" in (model_id or "").lower()
+    if is_nova:
+        # Amazon Nova messages-v1 request schema
+        body = {
+            "schemaVersion": "messages-v1",
+            "system": [{"text": system}],
+            "messages": [{"role": "user", "content": [{"text": user}]}],
+            "inferenceConfig": {"maxTokens": 1024, "temperature": 0.2},
+        }
+    else:
+        # Anthropic Claude request body
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1024,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+
     response = client.invoke_model(
         modelId=model_id,
         contentType="application/json",
@@ -78,7 +94,17 @@ def _invoke_bedrock(system: str, user: str, model_id: str | None = None) -> str:
         body=json.dumps(body),
     )
     result = json.loads(response["body"].read())
-    # Response has content array with type "text" and "text" field
+
+    if is_nova:
+        # Nova response: output.message.content[] with "text" or "image"
+        out = ""
+        output = result.get("output", {})
+        message = output.get("message", {})
+        for block in message.get("content", []):
+            if block.get("type") == "text" and "text" in block:
+                out += block.get("text", "")
+        return out
+    # Claude response: content[] with type "text" and "text" field
     out = ""
     for block in result.get("content", []):
         if block.get("type") == "text":

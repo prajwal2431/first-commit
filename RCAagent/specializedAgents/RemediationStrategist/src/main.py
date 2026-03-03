@@ -1,48 +1,46 @@
 import os
+
 from langchain_core.messages import HumanMessage
 from bedrock_agentcore import BedrockAgentCoreApp
 
 from .graph.graph import create_remediation_graph
 from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_mcp_client
-from .tools.simulate_impact import make_simulate_impact_range_tool
-from .tools.map_remediation import make_map_remediation_action_tool
-from .tools.assess_risk import assess_risk_level
 from .model.load import load_model
 
-if os.getenv("LOCAL_DEV") == "1":
-    async def _local_no_tools():
-        return []
-    mcp_client = _local_no_tools
-else:
-    mcp_client = deployed_get_mcp_client()
+# Short-term memory (checkpoint persistence): use when MEMORY_ID is set (e.g. by Terraform at runtime)
+MEMORY_ID = os.getenv("MEMORY_ID")
+REGION = os.getenv("AWS_REGION", "eu-west-2")
 
+checkpointer = None
+store = None
+if MEMORY_ID:
+    try:
+        from langgraph_checkpoint_aws import AgentCoreMemorySaver, AgentCoreMemoryStore
+
+        checkpointer = AgentCoreMemorySaver(memory_id=MEMORY_ID, region_name=REGION)
+        store = AgentCoreMemoryStore(memory_id=MEMORY_ID, region_name=REGION)
+    except Exception:
+        checkpointer = None
+        store = None
+
+# Always use AgentCore Gateway for MCP tools (requires GATEWAY_URL and COGNITO_* in env)
+mcp_client = deployed_get_mcp_client()
 llm = load_model()
-
-def _remediation_tools():
-    return [
-        make_simulate_impact_range_tool(llm),
-        make_map_remediation_action_tool(llm),
-        assess_risk_level,
-    ]
 
 app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
 async def invoke(payload):
-    """Run Remediation Strategist: map root causes to actions, simulate impact, prioritize, produce Decision Memo. Sets requires_approval for high-risk actions (HITL)."""
+    """Run Remediation Strategist: map root causes to actions, simulate impact, prioritize, produce Decision Memo.
+    All tools come from the AgentCore Gateway (Lambda). Sets requires_approval for high-risk actions (HITL)."""
     prompt = payload.get("prompt", "Stockout in North India led to revenue drop. Suggest remediation actions.")
     thread_id = (payload.get("thread_id") or "default-session")[:100]
     actor_id = payload.get("actor_id") or "default-actor"
     root_causes = payload.get("root_causes") or []
 
-    if hasattr(mcp_client, "get_tools"):
-        mcp_tools = await mcp_client.get_tools()
-    else:
-        mcp_tools = await mcp_client()
-    all_tools = mcp_tools + _remediation_tools()
-
-    graph = create_remediation_graph(llm, all_tools, checkpointer=None)
+    all_tools = await mcp_client.get_tools()
+    graph = create_remediation_graph(llm, all_tools, checkpointer=checkpointer)
 
     initial_state = {
         "messages": [HumanMessage(content=prompt)],

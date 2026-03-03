@@ -1,3 +1,5 @@
+import os
+
 from langchain_aws import ChatBedrock
 
 # https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html

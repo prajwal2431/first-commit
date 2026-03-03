@@ -1,47 +1,46 @@
 import os
+
 from langchain_core.messages import HumanMessage
 from bedrock_agentcore import BedrockAgentCoreApp
 
 from .graph.graph import create_diagnostic_graph
 from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_tools
-from .tools.query_data import query_business_data, clear_live_data
-from .tools.contribution import calculate_contribution_score
-from .tools.sheet_loader import load_google_sheet, extract_kpi_data
 from .model.load import load_model
 
-if os.getenv("LOCAL_DEV") == "1":
-    async def _local_no_tools():
-        return []
-    mcp_client = _local_no_tools
-else:
-    mcp_client = deployed_get_tools()
+# Short-term memory (checkpoint persistence): use when MEMORY_ID is set (e.g. by Terraform at runtime)
+MEMORY_ID = os.getenv("MEMORY_ID", "RCAagent_Memory-ExBO3RGgSy")
+REGION = os.getenv("AWS_REGION", "eu-west-2")
 
+# Initialize memory components (eager init when MEMORY_ID is set; LangChain/LangGraph AWS integrations)
+checkpointer = None
+store = None
+if MEMORY_ID:
+    try:
+        from langgraph_checkpoint_aws import AgentCoreMemorySaver, AgentCoreMemoryStore
+        checkpointer = AgentCoreMemorySaver(memory_id=MEMORY_ID, region_name=REGION)
+        store = AgentCoreMemoryStore(memory_id=MEMORY_ID, region_name=REGION)
+    except Exception:
+        checkpointer = None
+        store = None
+
+# Always use AgentCore Gateway for MCP tools (requires GATEWAY_URL and COGNITO_* in .env)
+mcp_client = deployed_get_tools()
 llm = load_model()
-
-DIAGNOSTIC_TOOLS = [query_business_data, calculate_contribution_score, load_google_sheet, extract_kpi_data]
 
 app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
 async def invoke(payload):
-    """Run Diagnostic Analyst: optionally ingest from Google Sheet, decompose revenue drop,
-    rank drivers, drill down by segment, return DiagnosticResult."""
+    """Run Diagnostic Analyst: decompose revenue drop, rank drivers, drill down by segment, return DiagnosticResult.
+    All tools come from the AgentCore Gateway (Lambda). Pass sheet_url in payload to query data from a Google Sheet."""
     prompt = payload.get("prompt", "Revenue dropped WoW. Decompose and rank drivers.")
     thread_id = (payload.get("thread_id") or "default-session")[:100]
     actor_id = payload.get("actor_id") or "default-actor"
     sheet_url = payload.get("sheet_url", "")
 
-    # Reset live data cache from any previous invocation
-    clear_live_data()
-
-    if hasattr(mcp_client, "get_tools"):
-        mcp_tools = await mcp_client.get_tools()
-    else:
-        mcp_tools = await mcp_client()
-    all_tools = mcp_tools + DIAGNOSTIC_TOOLS
-
-    graph = create_diagnostic_graph(llm, all_tools, checkpointer=None)
+    all_tools = await mcp_client.get_tools()
+    graph = create_diagnostic_graph(llm, all_tools, checkpointer=checkpointer)
 
     initial_state = {"messages": [HumanMessage(content=prompt)]}
     if sheet_url:

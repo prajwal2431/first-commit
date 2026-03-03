@@ -16,21 +16,30 @@ WORKER_HYPOTHESIZE = "worker_hypothesize"
 WORKER_VERIFY = "worker_verify"
 WORKER_SUMMARIZE = "worker_summarize"
 
-SUPERVISOR_SYSTEM = """You are the supervisor for a Root Cause Analysis (RCA) agent. You coordinate specialist workers.
+# Max messages to include in supervisor context for multi-turn chat (older messages truncated)
+_SUPERVISOR_MESSAGE_WINDOW = 20
 
-Available workers:
+SUPERVISOR_SYSTEM = """You are the supervisor for a Root Cause Analysis (RCA) agent. You can either respond directly to the user (normal chat) or dispatch specialist workers when analysis is needed.
+
+When the user's message is conversational (greetings, general questions, explanations, chit-chat, or anything that does not require root cause analysis or data verification), reply directly using the "respond" option. When the user clearly needs RCA (e.g. "find root cause", "why did revenue drop", "diagnose stockout"), use the workers.
+
+Available workers (use only when RCA/analysis is required):
 - worker_hypothesize: Generates hypotheses from the current context/messages. Call when you need possible root causes.
 - worker_verify: Runs data verification (queries, search). Call with one or more tasks to verify hypotheses in parallel.
 - worker_summarize: Produces final RCA summary, confidence, and recommendations from hypotheses and evidence. Call when hypotheses are verified and you are ready to conclude.
 
-You must respond with ONLY a valid JSON object, no other text. Use one of these shapes:
+You must respond with ONLY a valid JSON object, no other text. Use exactly one of these shapes:
 
-1. To finish and let the user see the result: {"done": true}
+1. To reply directly to the user (normal chat, no workers): {"respond": "<your full message to the user>"}
 
-2. To call one or more workers: {"sends": [{"node": "<worker_name>", "payload": <object>}, ...]}
+2. To finish without adding a new message (e.g. workers already replied): {"done": true}
+
+3. To call one or more workers: {"sends": [{"node": "<worker_name>", "payload": <object>}, ...]}
 
 Examples:
-- First step, get hypotheses: {"sends": [{"node": "worker_hypothesize", "payload": {"task": "Generate hypotheses from the user request and context"}}]}
+- User says "Hello" -> {"respond": "Hi! I'm your RCA assistant. I can help with root cause analysis (e.g. revenue drops, stockouts) or answer questions. What would you like to do?"}
+- User asks "What is a stockout?" -> {"respond": "A stockout is when you run out of inventory for a product, so you can't fulfill demand. It often leads to lost sales and can signal supply or demand issues. I can help analyze stockout impact if you have data."}
+- User says "Revenue dropped 20% WoW, find root cause" -> {"sends": [{"node": "worker_hypothesize", "payload": {"task": "Generate hypotheses from the user request and context"}}]}
 - Verify two hypotheses in parallel: {"sends": [{"node": "worker_verify", "payload": {"hypothesis": "Stockout in region X", "query": "..."}}, {"node": "worker_verify", "payload": {"hypothesis": "Demand spike", "query": "..."}}]}
 - Final step: {"sends": [{"node": "worker_summarize", "payload": {"task": "Summarize RCA and recommend actions"}}]}
 
@@ -55,17 +64,25 @@ def make_supervisor_node(llm: Any) -> Any:
         hypotheses = state.get("hypotheses") or []
         evidence = state.get("evidence") or []
         reasoning_log = state.get("reasoning_log") or []
+        # Conversation history for multi-turn chat (last N messages)
+        window = messages[-_SUPERVISOR_MESSAGE_WINDOW:] if len(messages) > _SUPERVISOR_MESSAGE_WINDOW else messages
+        conv_lines = []
+        for m in window:
+            role = getattr(m, "type", "unknown")
+            text = (getattr(m, "content", None) or str(m))[:800]
+            conv_lines.append(f"[{role}]: {text}")
+        conversation_block = "\n".join(conv_lines) if conv_lines else "(no messages yet)"
         prompt_parts = [
             "Current state:",
-            f"- Messages: {len(messages)}",
             f"- Hypotheses so far: {len(hypotheses)}",
             f"- Evidence items: {len(evidence)}",
             f"- Reasoning log entries: {len(reasoning_log)}",
+            "",
+            "Conversation (last messages):",
+            conversation_block,
+            "",
+            "Decide: reply directly (respond), finish (done), or call workers (sends). Reply with JSON only.",
         ]
-        if messages:
-            last_msg = messages[-1]
-            prompt_parts.append(f"\nLast message content (user or assistant): {getattr(last_msg, 'content', str(last_msg))[:500]}")
-        prompt_parts.append("\nDecide the next step. Reply with JSON only.")
 
         response = llm.invoke(
             [
@@ -79,6 +96,15 @@ def make_supervisor_node(llm: Any) -> Any:
         except json.JSONDecodeError:
             decision = {"done": True}
 
+        # Direct reply to user (normal chat)
+        if decision.get("respond"):
+            reply_text = decision.get("respond", "").strip()
+            if not reply_text:
+                return {"supervisor_decision": {"done": True}}
+            return {
+                "messages": [AIMessage(content=reply_text)],
+                "supervisor_decision": {"done": True},
+            }
         if decision.get("done"):
             return {"supervisor_decision": {"done": True}}
         sends = decision.get("sends") or []

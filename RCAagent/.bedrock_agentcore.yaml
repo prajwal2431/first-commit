@@ -11,6 +11,6 @@ agents:
       region: null
     bedrock_agentcore:
       agent_id: null
-      agent_arn: null
+      agent_arn: arn:aws:bedrock-agentcore:eu-west-2:017059472089:runtime/RCAagent_Agent-n1ZZvz2Fvd
       agent_session_id: null
     is_generated_by_agentcore_create: true

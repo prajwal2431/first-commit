@@ -213,6 +213,131 @@ resource "aws_bedrockagentcore_gateway_target" "agentcore_gateway_lambda_target"
             }
           }
         }
+
+        tool_schema {
+          inline_payload {
+            name        = "search"
+            description = "Web search. Use for real-time or external information. Requires TAVILY_API_KEY in Lambda env."
+            input_schema {
+              type        = "object"
+              description = "Search parameters"
+              property {
+                name        = "query"
+                type        = "string"
+                description = "Search query (or use 'q')."
+              }
+              property {
+                name        = "max_results"
+                type        = "integer"
+                description = "Max results to return (1-20, default 5)."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "query_sheet"
+            description = "Query a Google Sheet or CSV URL for KPIs (Revenue, Traffic, CVR, AOV). Supports optional segment filter."
+            input_schema {
+              type        = "object"
+              description = "Sheet/CSV query parameters"
+              property {
+                name        = "sheet_url"
+                type        = "string"
+                description = "Google Sheet or CSV URL (or use csv_url)."
+              }
+              property {
+                name        = "csv_url"
+                type        = "string"
+                description = "Alternative to sheet_url: direct CSV URL."
+              }
+              property {
+                name        = "metric"
+                type        = "string"
+                description = "Metric to compute: Revenue, Traffic, CVR, AOV, or 'all'."
+              }
+              property {
+                name        = "segment_dimension"
+                type        = "string"
+                description = "Column name to filter by (e.g. region, category)."
+              }
+              property {
+                name        = "segment_value"
+                type        = "string"
+                description = "Value for segment_dimension filter."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "get_revenue_summary"
+            description = "Get revenue summary from a sheet/CSV: current vs previous period totals and delta."
+            input_schema {
+              type        = "object"
+              description = "Revenue summary parameters"
+              property {
+                name        = "sheet_url"
+                type        = "string"
+                description = "Google Sheet or CSV URL (or use csv_url)."
+              }
+              property {
+                name        = "csv_url"
+                type        = "string"
+                description = "Alternative to sheet_url: direct CSV URL."
+              }
+              property {
+                name        = "period_days"
+                type        = "integer"
+                description = "Number of days for current/previous period (default 7)."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "get_inventory_summary"
+            description = "Get inventory summary from sheet/CSV: OOS count, by-location summary."
+            input_schema {
+              type        = "object"
+              description = "Inventory summary parameters"
+              property {
+                name        = "sheet_url"
+                type        = "string"
+                description = "Google Sheet or CSV URL (or use csv_url)."
+              }
+              property {
+                name        = "csv_url"
+                type        = "string"
+                description = "Alternative to sheet_url: direct CSV URL."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "list_data_schema"
+            description = "List column names and a sample row from a Google Sheet or CSV URL."
+            input_schema {
+              type        = "object"
+              description = "Schema listing parameters"
+              property {
+                name        = "sheet_url"
+                type        = "string"
+                description = "Google Sheet or CSV URL (or use csv_url)."
+              }
+              property {
+                name        = "csv_url"
+                type        = "string"
+                description = "Alternative to sheet_url: direct CSV URL."
+              }
+            }
+          }
+        }
       }
     }
   }

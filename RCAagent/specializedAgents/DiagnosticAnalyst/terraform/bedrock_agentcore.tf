@@ -213,6 +213,98 @@ resource "aws_bedrockagentcore_gateway_target" "agentcore_gateway_lambda_target"
             }
           }
         }
+
+        tool_schema {
+          inline_payload {
+            name        = "query_business_data"
+            description = "Pull KPI slices (Revenue, Traffic, CVR, AOV) from a Google Sheet or CSV. Pass sheet_url (or csv_url) to fetch data; optional metric, period, segment_dimension, segment_value. Returns JSON with kpi_slices and data_quality_gaps."
+            input_schema {
+              type        = "object"
+              description = "Input for query_business_data"
+              property {
+                name        = "sheet_url"
+                type        = "string"
+                description = "Google Sheet share URL or CSV export URL. When provided, Lambda fetches CSV and returns KPI slices."
+              }
+              property {
+                name        = "csv_url"
+                type        = "string"
+                description = "Alternative to sheet_url: direct CSV URL."
+              }
+              property {
+                name        = "metric"
+                type        = "string"
+                description = "One of: all, Revenue, Traffic, CVR, AOV. Default: all."
+              }
+              property {
+                name        = "period"
+                type        = "string"
+                description = "Period label (e.g. WoW, DoD). Default: WoW."
+              }
+              property {
+                name        = "segment_dimension"
+                type        = "string"
+                description = "Segment dimension for drill-down: e.g. Region, Channel, Pincode."
+              }
+              property {
+                name        = "segment_value"
+                type        = "string"
+                description = "Segment value to filter by (e.g. North India, Myntra, 110001)."
+              }
+            }
+          }
+        }
+
+        tool_schema {
+          inline_payload {
+            name        = "calculate_contribution_score"
+            description = "Multiplicative decomposition: Revenue = Traffic x CVR x AOV. Ranks components (Traffic, CVR, AOV) by absolute impact on revenue change. Returns JSON with ranked_drivers."
+            input_schema {
+              type        = "object"
+              description = "Current and baseline values for Revenue decomposition"
+              property {
+                name        = "revenue_current"
+                type        = "number"
+                description = "Current period revenue."
+              }
+              property {
+                name        = "revenue_baseline"
+                type        = "number"
+                description = "Baseline period revenue."
+              }
+              property {
+                name        = "traffic_current"
+                type        = "number"
+                description = "Current period traffic/sessions."
+              }
+              property {
+                name        = "traffic_baseline"
+                type        = "number"
+                description = "Baseline period traffic."
+              }
+              property {
+                name        = "cvr_current"
+                type        = "number"
+                description = "Current conversion rate."
+              }
+              property {
+                name        = "cvr_baseline"
+                type        = "number"
+                description = "Baseline conversion rate."
+              }
+              property {
+                name        = "aov_current"
+                type        = "number"
+                description = "Current average order value."
+              }
+              property {
+                name        = "aov_baseline"
+                type        = "number"
+                description = "Baseline average order value."
+              }
+            }
+          }
+        }
       }
     }
   }

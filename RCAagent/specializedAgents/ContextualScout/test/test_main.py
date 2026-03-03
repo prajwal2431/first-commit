@@ -12,8 +12,6 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-os.environ["LOCAL_DEV"] = "1"
-
 # Fake Tavily response for tests (simulates what the real API would return)
 _FAKE_TAVILY_RESPONSE = {
     "results": [
@@ -211,30 +209,64 @@ class TestScoutResultSchema:
         assert result.external_factors[0].signal_type == "weather"
 
 
+def _scout_mock_mcp_client():
+    """Mock MCP client so main.py can load without GATEWAY_URL/Cognito (used for app/invoke imports)."""
+    client = MagicMock()
+    tools = [MagicMock(), MagicMock(), MagicMock()]
+    tools[0].name, tools[1].name, tools[2].name = "social_signal_analyzer", "marketplace_api_fetcher", "inventory_mismatch_checker"
+    client.get_tools = AsyncMock(return_value=tools)
+    return client
+
+
 class TestBedrockAgentCoreApp:
     """Test app and entrypoint wiring."""
 
     def test_app_initialization(self):
-        from src.main import app
+        with patch("src.mcp_client.client.get_streamable_http_mcp_client", return_value=_scout_mock_mcp_client()):
+            from src.main import app
 
         assert app is not None
         assert hasattr(app, "entrypoint")
 
     def test_entrypoint_decorator(self):
-        from src.main import invoke
+        with patch("src.mcp_client.client.get_streamable_http_mcp_client", return_value=_scout_mock_mcp_client()):
+            from src.main import invoke
 
         assert hasattr(invoke, "__name__")
         assert invoke.__name__ == "invoke"
 
 
 class TestInvoke:
-    """Test invoke with mocked graph (no real LLM)."""
+    """Test invoke with mocked graph and MCP client (no real LLM or Gateway)."""
+
+    def _mock_tool(self, name: str) -> MagicMock:
+        t = MagicMock()
+        t.name = name
+        return t
+
+    def _mock_mcp_client(self):
+        client = MagicMock()
+        client.get_tools = AsyncMock(return_value=[
+            self._mock_tool("social_signal_analyzer"),
+            self._mock_tool("marketplace_api_fetcher"),
+            self._mock_tool("inventory_mismatch_checker"),
+        ])
+        return client
 
     @pytest.mark.asyncio
     async def test_invoke_returns_result_and_scout_fields(self):
-        from src.main import invoke
+        with patch("src.mcp_client.client.get_streamable_http_mcp_client", return_value=self._mock_mcp_client()):
+            from src.main import invoke
 
-        with patch("src.main.create_scout_graph") as mock_create:
+        mock_tools = [
+            self._mock_tool("social_signal_analyzer"),
+            self._mock_tool("marketplace_api_fetcher"),
+            self._mock_tool("inventory_mismatch_checker"),
+        ]
+        mock_mcp = MagicMock()
+        mock_mcp.get_tools = AsyncMock(return_value=mock_tools)
+
+        with patch("src.main.mcp_client", mock_mcp), patch("src.main.create_scout_graph") as mock_create:
             mock_graph = MagicMock()
             mock_graph.ainvoke = AsyncMock(
                 return_value={

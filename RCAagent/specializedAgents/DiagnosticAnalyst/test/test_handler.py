@@ -1,8 +1,8 @@
-"""Tests for MCP Lambda handler: placeholder_tool, query_business_data, calculate_contribution_score."""
+"""Tests for MCP Lambda handler: placeholder_tool, query_business_data (with/without sheet_url), calculate_contribution_score."""
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Add mcp/lambda to path so we can import handler
 LAMBDA_DIR = Path(__file__).resolve().parent.parent / "mcp" / "lambda"
@@ -61,6 +61,27 @@ def test_calculate_contribution_score_returns_ranked_drivers():
     data = json.loads(body["result"])
     assert "ranked_drivers" in data
     assert len(data["ranked_drivers"]) == 3
+
+
+def test_query_business_data_with_sheet_url_returns_slices():
+    """When sheet_url is provided and _fetch_csv returns rows, we get kpi_slices (mocked fetch)."""
+    sample_rows = [
+        {"Revenue": "100", "Traffic": "5000", "Units": "150"},
+        {"Revenue": "80", "Traffic": "4000", "Units": "120"},
+    ]
+    with patch.object(handler, "_fetch_csv", return_value=sample_rows):
+        event = {"sheet_url": "https://docs.google.com/spreadsheets/d/abc/edit", "metric": "all", "period": "WoW"}
+        ctx = _make_context("query_business_data")
+        resp = handler.lambda_handler(event, ctx)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    data = json.loads(body["result"])
+    assert "kpi_slices" in data
+    assert len(data["kpi_slices"]) >= 1
+    rev_slice = next((s for s in data["kpi_slices"] if s.get("metric_name") == "Revenue"), None)
+    assert rev_slice is not None
+    assert "current_value" in rev_slice and "baseline_value" in rev_slice
+    assert "delta_absolute" in rev_slice and "period" in rev_slice
 
 
 def test_unknown_tool_returns_400():

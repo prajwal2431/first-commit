@@ -14,8 +14,6 @@ requires-python = ">=3.10"
 
 dependencies = [
     "bedrock-agentcore >= 1.0.3",
-    "google-auth >= 2.0.0",
-    "gspread >= 6.0.0",
     "langchain >= 1.0.3",
     "langchain-mcp-adapters >= 0.1.11",
     "langchain_aws >= 1.0.0",
