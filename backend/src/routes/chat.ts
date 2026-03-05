@@ -56,14 +56,13 @@ router.post('/message', async (req: Request, res: Response) => {
 
     if (useRcaAgent) {
       try {
+        // Same user = same actor_id; different chat = different thread_id (session._id)
+        const actorId = req.user?.userId ?? 'anonymous';
         const agentResult = await invokeRCAAgent({
           prompt: message,
           orgId,
           sessionId: String(session._id),
-          actorId: 'chat',
-          extraContext: {
-            last_message_role: 'user',
-          },
+          actorId,
         });
         responseText = agentResult.result;
         responseType = 'analysis';

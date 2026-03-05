@@ -25,7 +25,7 @@ const suggestions = [
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
     const { messagesBySession, isTyping, sendMessage, setActiveSession, isChatOpen, setChatOpen } = useChatStore();
-    const { addSession } = useSessionStore();
+    const { addSession, replaceSessionId } = useSessionStore();
     const navigate = useNavigate();
     const chatEndRef = useRef<HTMLDivElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -94,12 +94,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isTyping]);
 
-    const handleFirstMessage = useCallback((text: string) => {
+    const handleFirstMessage = useCallback(async (text: string) => {
         if (!hasCreatedSession.current) {
             hasCreatedSession.current = true;
             const title = text.length > 60 ? text.substring(0, 57) + '...' : text;
 
-            // Create session in sessionStore
+            // Create session in sessionStore (client temp id, e.g. Date.now())
             const newId = addSession(title);
 
             // Set it as active in local state and chatStore
@@ -109,14 +109,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             // Navigate to the new URL without triggering a full remount
             navigate(`/dashboard/intelligence/${newId}`, { replace: true });
 
-            // Send the message using the new ID explicitly
-            sendMessage(newId, text);
+            // Send the message; backend creates AnalysisSession and returns real MongoDB sessionId
+            const result = await sendMessage(newId, text);
             setChatOpen(true);
+
+            // If backend returned a different session id (real ObjectId), switch to it so /analysis/result/:id works
+            const realSessionId = result?.sessionId;
+            if (realSessionId && realSessionId !== newId) {
+                replaceSessionId(newId, realSessionId);
+                setActiveId(realSessionId);
+                setActiveSession(realSessionId);
+                navigate(`/dashboard/intelligence/${realSessionId}`, { replace: true });
+            }
         } else if (activeId) {
             sendMessage(activeId, text);
             setChatOpen(true);
         }
-    }, [addSession, sendMessage, setActiveSession, navigate, activeId]);
+    }, [addSession, sendMessage, setActiveSession, navigate, activeId, replaceSessionId]);
 
     const handleSendMessage = (text: string) => {
         if (!hasCreatedSession.current || !activeId) {

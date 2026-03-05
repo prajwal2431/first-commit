@@ -12,7 +12,7 @@ interface ChatState {
 
     setChatOpen: (isOpen: boolean) => void;
     setActiveSession: (sessionId: string | null) => void;
-    sendMessage: (sessionId: string, text: string) => Promise<void>;
+    sendMessage: (sessionId: string, text: string) => Promise<{ sessionId?: string } | void>;
     loadMessages: (sessionId: string) => Promise<void>;
     clearMessages: () => void;
 }
@@ -30,6 +30,9 @@ export const useChatStore = create<ChatState>()(
 
             loadMessages: async (sessionId: string) => {
                 if (!sessionId) return;
+                // Skip API call for client-generated temp ids (e.g. Date.now()); backend expects MongoDB ObjectId
+                const isMongoId = /^[a-fA-F0-9]{24}$/.test(sessionId);
+                if (!isMongoId) return;
                 try {
                     const data = await request<any>(`/analysis/result/${sessionId}`);
                     if (data && data.messages) {
@@ -83,13 +86,29 @@ export const useChatStore = create<ChatState>()(
                             timestamp: new Date().toISOString(),
                         };
 
-                        set({
-                            messagesBySession: {
-                                ...latestState.messagesBySession,
-                                [sid]: [...msgsAfterUser, botMsg]
-                            },
-                        });
+                        const realSessionId = data.sessionId ?? data.analysisId;
+                        const messagesForSession = [...msgsAfterUser, botMsg];
+
+                        // If backend returned a different session id (e.g. MongoDB ObjectId), migrate messages and use it
+                        if (realSessionId && realSessionId !== sid) {
+                            set({
+                                messagesBySession: {
+                                    ...latestState.messagesBySession,
+                                    [sid]: messagesForSession,
+                                    [realSessionId]: messagesForSession,
+                                },
+                                activeSessionId: realSessionId,
+                            });
+                        } else {
+                            set({
+                                messagesBySession: {
+                                    ...latestState.messagesBySession,
+                                    [sid]: messagesForSession,
+                                },
+                            });
+                        }
                     }
+                    return { sessionId: data?.sessionId ?? data?.analysisId };
                 } catch (err) {
                     console.error('Failed to send message', err);
                 } finally {

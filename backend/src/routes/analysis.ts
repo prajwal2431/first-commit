@@ -1,8 +1,13 @@
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { AnalysisSession } from '../models/AnalysisSession';
 import { runFullAnalysis } from '../services/analysis/runAnalysis';
 
 const router = Router();
+
+function isValidSessionId(id: string): boolean {
+  return typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+}
 
 const activeStreams = new Map<string, Set<Response>>();
 
@@ -111,8 +116,12 @@ router.get('/stream/:id', (req: Request, res: Response) => {
 
 router.get('/result/:id', async (req: Request, res: Response) => {
   try {
+    const id = req.params.id;
+    if (!isValidSessionId(id)) {
+      return res.status(400).json({ message: 'Invalid session id' });
+    }
     const orgId = req.user?.tenantId ?? 'default';
-    const session = await AnalysisSession.findOne({ _id: req.params.id, organizationId: orgId }).lean();
+    const session = await AnalysisSession.findOne({ _id: id, organizationId: orgId }).lean();
     if (!session) {
       return res.status(404).json({ message: 'Analysis session not found' });
     }

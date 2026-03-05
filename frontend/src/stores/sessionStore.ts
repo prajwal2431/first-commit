@@ -12,6 +12,7 @@ interface SessionState {
 
     fetchSessions: (force?: boolean) => Promise<void>;
     addSession: (query: string) => string;
+    replaceSessionId: (oldId: string, newId: string) => void;
     setActiveSession: (id: string | null) => void;
     renameSession: (id: string, newTitle: string) => Promise<void>;
     deleteSession: (id: string) => Promise<void>;
@@ -82,6 +83,15 @@ export const useSessionStore = create<SessionState>()(
                     activeSessionId: id,
                 }));
                 return id;
+            },
+
+            replaceSessionId: (oldId: string, newId: string) => {
+                set((state) => ({
+                    sessions: state.sessions.map((s) =>
+                        s.id === oldId ? { ...s, id: newId } : s
+                    ),
+                    activeSessionId: state.activeSessionId === oldId ? newId : state.activeSessionId,
+                }));
             },
 
             renameSession: async (id, newTitle) => {

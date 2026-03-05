@@ -6,7 +6,6 @@ export interface RCAAgentInvokeParams {
   orgId: string;
   sessionId: string;
   actorId?: string;
-  extraContext?: unknown;
 }
 
 export interface RCAAgentResult {
@@ -50,17 +49,12 @@ export async function invokeRCAAgent(params: RCAAgentInvokeParams): Promise<RCAA
     throw new Error('RCA_AGENT_RUNTIME_ARN is not configured');
   }
 
-  const { prompt, orgId, sessionId, actorId = 'chat', extraContext } = params;
+  const { prompt, orgId, sessionId, actorId = 'chat' } = params;
 
   const payload = {
     prompt,
     thread_id: sessionId,
     actor_id: actorId,
-    extra_context: {
-      org_id: orgId,
-      session_id: sessionId,
-      ...((extraContext as Record<string, unknown>) || {}),
-    },
   };
 
   const runtimeSessionId = buildRuntimeSessionId(orgId, sessionId);
