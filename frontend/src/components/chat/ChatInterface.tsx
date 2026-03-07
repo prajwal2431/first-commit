@@ -73,21 +73,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
         }
     }, [sessionId, setActiveSession]);
 
-    // 2. URL ?q= Auto-send Logic
-    useEffect(() => {
-        const q = searchParams.get('q');
-
-        if (q && !initialQuerySent.current && !sessionId) {
-            initialQuerySent.current = true;
-            // Clear URL immediately
-            setSearchParams({}, { replace: true });
-
-            setTimeout(() => {
-                handleFirstMessage(q);
-            }, 10);
-        }
-    }, [searchParams, setSearchParams, sessionId]);
-
     const messages = activeId ? (messagesBySession[activeId] || []) : [];
 
     // Scroll to bottom
@@ -117,6 +102,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             // If backend returned a different session id (real ObjectId), switch to it so /analysis/result/:id works
             const realSessionId = result?.sessionId;
             if (realSessionId && realSessionId !== newId) {
+                const latestSessions = useSessionStore.getState().sessions;
+                const stillExists = latestSessions.some((s) => s.id === newId);
+
+                // User may delete the optimistic local session before backend responds.
+                // In that case, do not resurrect it; delete the backend session as well.
+                if (!stillExists) {
+                    await useSessionStore.getState().deleteSession(realSessionId);
+                    return;
+                }
+
                 replaceSessionId(newId, realSessionId);
                 setActiveId(realSessionId);
                 setActiveSession(realSessionId);
@@ -126,7 +121,21 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
             sendMessage(activeId, text);
             setChatOpen(true);
         }
-    }, [addSession, sendMessage, setActiveSession, navigate, activeId, replaceSessionId]);
+    }, [addSession, sendMessage, setActiveSession, navigate, activeId, replaceSessionId, setChatOpen]);
+
+    // 2. URL ?q= Auto-send Logic
+    useEffect(() => {
+        const q = searchParams.get('q');
+
+        if (q && !initialQuerySent.current && !sessionId) {
+            initialQuerySent.current = true;
+            setSearchParams({}, { replace: true });
+
+            setTimeout(() => {
+                handleFirstMessage(q);
+            }, 10);
+        }
+    }, [searchParams, setSearchParams, sessionId, handleFirstMessage]);
 
     const handleSendMessage = (text: string) => {
         if (!hasCreatedSession.current || !activeId) {

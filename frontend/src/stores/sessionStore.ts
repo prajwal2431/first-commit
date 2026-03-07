@@ -6,6 +6,7 @@ import { tenantStorage } from './tenantStorage';
 
 interface SessionState {
     sessions: Session[];
+    deletedSessionIds: string[];
     activeSessionId: string | null;
     isLoading: boolean;
     hasFetched: boolean;
@@ -18,10 +19,15 @@ interface SessionState {
     deleteSession: (id: string) => Promise<void>;
 }
 
+function isMongoId(id: string): boolean {
+    return /^[a-fA-F0-9]{24}$/.test(id);
+}
+
 export const useSessionStore = create<SessionState>()(
     persist(
         (set, get) => ({
             sessions: [],
+            deletedSessionIds: [],
             activeSessionId: null,
             isLoading: false,
             hasFetched: false,
@@ -40,22 +46,22 @@ export const useSessionStore = create<SessionState>()(
                         completedAt?: string;
                     }>>('/analysis/sessions');
 
-                    // Start with our persisted local sessions
-                    let mergedSessions = [...get().sessions];
-                    const seen = new Set<string>(mergedSessions.map(s => s.id));
+                    const deleted = new Set(get().deletedSessionIds);
+                    const localOnlySessions = get().sessions.filter((s) => !isMongoId(s.id) && !deleted.has(s.id));
+                    const backendSessions: Session[] = [];
 
-                    // Add backend sessions
                     for (const s of data) {
-                        if (seen.has(s._id)) continue;
-                        seen.add(s._id);
+                        if (deleted.has(s._id)) continue;
                         const d = new Date(s.startedAt);
-                        mergedSessions.push({
+                        backendSessions.push({
                             id: s._id,
                             query: s.query,
                             date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                             createdAt: s.startedAt,
                         });
                     }
+
+                    const mergedSessions = [...localOnlySessions, ...backendSessions];
 
                     // Sort by newest first
                     mergedSessions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -86,6 +92,9 @@ export const useSessionStore = create<SessionState>()(
             },
 
             replaceSessionId: (oldId: string, newId: string) => {
+                const deleted = new Set(get().deletedSessionIds);
+                if (deleted.has(oldId) || deleted.has(newId)) return;
+
                 set((state) => ({
                     sessions: state.sessions.map((s) =>
                         s.id === oldId ? { ...s, id: newId } : s
@@ -111,26 +120,32 @@ export const useSessionStore = create<SessionState>()(
             },
 
             deleteSession: async (id) => {
-                try {
-                    // Always cleanly await the backend deletion to ensure it's removed from database
-                    await request(`/analysis/sessions/${id}`, {
-                        method: 'DELETE',
-                    });
-                } catch (error) {
-                    console.error('Backend deletion failed or session only existed locally', error);
-                }
+                set((state) => {
+                    const deleted = new Set(state.deletedSessionIds);
+                    deleted.add(id);
+                    return {
+                        sessions: state.sessions.filter((s) => s.id !== id),
+                        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+                        deletedSessionIds: Array.from(deleted).slice(-200),
+                    };
+                });
 
-                // After confirmation from backend (or if it was only local), delete from local cache
-                set((state) => ({
-                    sessions: state.sessions.filter((s) => s.id !== id),
-                    activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-                }));
+                try {
+                    if (isMongoId(id)) {
+                        await request(`/analysis/sessions/${id}`, {
+                            method: 'DELETE',
+                        });
+                    }
+                } catch (error) {
+                    console.error('Backend deletion failed', error);
+                }
             },
         }),
         {
             name: 'session-storage',
             partialize: (state) => ({
-                sessions: state.sessions.filter(s => !s.id.includes('dummy')) // Keep all valid sessions
+                sessions: state.sessions.filter(s => !s.id.includes('dummy')), // Keep all valid sessions
+                deletedSessionIds: state.deletedSessionIds.slice(-200),
             }),
             storage: createJSONStorage(() => tenantStorage),
         }

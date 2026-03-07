@@ -162,11 +162,16 @@ router.get('/sessions', async (req: Request, res: Response) => {
 router.patch('/sessions/:id', async (req: Request, res: Response) => {
   try {
     const { title } = req.body;
+    const id = req.params.id;
+    if (!isValidSessionId(id)) {
+      return res.status(400).json({ message: 'Invalid session id' });
+    }
     if (!title) {
       return res.status(400).json({ message: 'Title is required' });
     }
-    const session = await AnalysisSession.findByIdAndUpdate(
-      req.params.id,
+    const orgId = req.user?.tenantId ?? 'default';
+    const session = await AnalysisSession.findOneAndUpdate(
+      { _id: id, organizationId: orgId },
       { query: title },
       { new: true }
     );
@@ -180,7 +185,12 @@ router.patch('/sessions/:id', async (req: Request, res: Response) => {
 
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
   try {
-    const session = await AnalysisSession.findByIdAndDelete(req.params.id);
+    const id = req.params.id;
+    if (!isValidSessionId(id)) {
+      return res.status(400).json({ message: 'Invalid session id' });
+    }
+    const orgId = req.user?.tenantId ?? 'default';
+    const session = await AnalysisSession.findOneAndDelete({ _id: id, organizationId: orgId });
     if (!session) return res.status(404).json({ message: 'Session not found' });
     res.json({ message: 'Session deleted successfully' });
   } catch (err) {

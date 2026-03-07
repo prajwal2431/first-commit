@@ -99,7 +99,7 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
                 });
             }
             onClose();
-        } catch (err) {
+        } catch {
             // Error is set in store if upload fails
         } finally {
             setIsProcessing(false);
