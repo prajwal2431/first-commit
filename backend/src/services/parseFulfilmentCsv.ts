@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import fs from 'fs';
-import { FulfilmentRecord } from '../models/FulfilmentRecord';
+import { batchPutFulfilment } from '../db/fulfilmentRecordRepo';
 
 const MAX_ROWS = 10000;
 
@@ -86,13 +86,11 @@ export async function parseFulfilmentCsv(
     }
 
     toInsert.push({
-      sourceId,
-      organizationId,
       order_id: obj.order_id,
       sku: obj.sku ?? '',
       dispatch_date: dispatchDate,
-      delivery_date: deliveryDate,
-      expected_delivery_date: edd,
+      delivery_date: deliveryDate ?? undefined,
+      expected_delivery_date: edd ?? undefined,
       delay_days: delayDays,
       carrier: obj.carrier ?? '',
       warehouse: obj.warehouse ?? '',
@@ -102,7 +100,7 @@ export async function parseFulfilmentCsv(
   }
 
   if (toInsert.length > 0) {
-    await FulfilmentRecord.insertMany(toInsert);
+    await batchPutFulfilment(organizationId, sourceId, toInsert as Parameters<typeof batchPutFulfilment>[2]);
   }
   return { inserted: toInsert.length };
 }

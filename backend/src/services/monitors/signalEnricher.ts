@@ -1,9 +1,9 @@
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { WeatherRecord } from '../../models/WeatherRecord';
-import { LiveSignal } from '../../models/DashboardState';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import { listInventoryByOrg } from '../../db/inventoryRepo';
+import { listFulfilmentByOrg } from '../../db/fulfilmentRecordRepo';
+import { listWeatherByOrg } from '../../db/weatherRecordRepo';
+import type { LiveSignal } from '../../models/DashboardState';
 
 export interface EnrichedEvidence {
     dataPoints: Array<{ label: string; value: string | number; delta?: number }>;
@@ -61,17 +61,12 @@ export async function enrichSignal(
 
 // ─── Revenue Enrichment ────────────────────────────────────────────────────────
 async function enrichRevenueSignal(orgId: string, signal: LiveSignal): Promise<EnrichedEvidence> {
-    const retailData = await RetailRecord.find({ organizationId: orgId })
-        .sort({ date: 1 })
-        .lean();
-
-    const orderData = await OrderRecord.find({ organizationId: orgId })
-        .sort({ date: 1 })
-        .lean();
+    const retailData = await listRetailByOrg(orgId);
+    const orderData = await listOrdersByOrg(orgId);
 
     const dailyMap = new Map<string, { revenue: number; orders: number; traffic: number }>();
     for (const r of retailData) {
-        const key = new Date(r.date).toISOString().slice(0, 10);
+        const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
         const ex = dailyMap.get(key) ?? { revenue: 0, orders: 0, traffic: 0 };
         ex.revenue += r.revenue;
         ex.orders += 1;
@@ -79,7 +74,7 @@ async function enrichRevenueSignal(orgId: string, signal: LiveSignal): Promise<E
         dailyMap.set(key, ex);
     }
     for (const o of orderData) {
-        const key = new Date(o.date).toISOString().slice(0, 10);
+        const key = typeof o.date === 'string' ? o.date.slice(0, 10) : new Date(o.date).toISOString().slice(0, 10);
         const ex = dailyMap.get(key) ?? { revenue: 0, orders: 0, traffic: 0 };
         ex.revenue += o.revenue;
         ex.orders += 1;
@@ -104,7 +99,7 @@ async function enrichRevenueSignal(orgId: string, signal: LiveSignal): Promise<E
     // Top SKU losers
     const skuRevenue = new Map<string, { recent: number; prior: number }>();
     for (const r of retailData) {
-        const key = new Date(r.date).toISOString().slice(0, 10);
+        const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
         const isRecent = recent7.some(([d]) => d === key);
         const isPrior = prior7.some(([d]) => d === key);
         if (!isRecent && !isPrior) continue;
@@ -170,15 +165,8 @@ function buildRevenueCauseSummary(
 
 // ─── Inventory Enrichment ──────────────────────────────────────────────────────
 async function enrichInventorySignal(orgId: string, signal: LiveSignal): Promise<EnrichedEvidence> {
-    const inventoryData = await InventoryRecord.find({ organizationId: orgId })
-        .sort({ date: -1 })
-        .limit(500)
-        .lean();
-
-    const retailData = await RetailRecord.find({ organizationId: orgId })
-        .sort({ date: -1 })
-        .limit(500)
-        .lean();
+    const inventoryData = (await listInventoryByOrg(orgId, 600)).slice(0, 500);
+    const retailData = (await listRetailByOrg(orgId, 600)).slice(0, 500);
 
     // Build SKU-level inventory picture
     const skuInventory = new Map<string, { qty: number; location: string; demand: number }>();
@@ -250,10 +238,7 @@ async function enrichInventorySignal(orgId: string, signal: LiveSignal): Promise
 
 // ─── Operations Enrichment ─────────────────────────────────────────────────────
 async function enrichOperationsSignal(orgId: string, signal: LiveSignal): Promise<EnrichedEvidence> {
-    const fulfilmentData = await FulfilmentRecord.find({ organizationId: orgId })
-        .sort({ dispatch_date: -1 })
-        .limit(1000)
-        .lean();
+    const fulfilmentData = (await listFulfilmentByOrg(orgId)).slice(0, 1000);
 
     const total = fulfilmentData.length;
     const returned = fulfilmentData.filter(r => r.status === 'rto' || r.status === 'returned');
@@ -315,15 +300,13 @@ async function enrichOperationsSignal(orgId: string, signal: LiveSignal): Promis
 
 // ─── Demand Enrichment ─────────────────────────────────────────────────────────
 async function enrichDemandSignal(orgId: string, signal: LiveSignal): Promise<EnrichedEvidence> {
-    const retailData = await RetailRecord.find({ organizationId: orgId })
-        .sort({ date: 1 })
-        .lean();
+    const retailData = await listRetailByOrg(orgId);
 
     const dailyUnits = new Map<string, number>();
     const dailyRevenue = new Map<string, number>();
 
     for (const r of retailData) {
-        const key = new Date(r.date).toISOString().slice(0, 10);
+        const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
         dailyUnits.set(key, (dailyUnits.get(key) ?? 0) + r.units);
         dailyRevenue.set(key, (dailyRevenue.get(key) ?? 0) + r.revenue);
     }
@@ -354,7 +337,7 @@ async function enrichDemandSignal(orgId: string, signal: LiveSignal): Promise<En
     // SKU-level spikes
     const skuDailyUnits = new Map<string, Map<string, number>>();
     for (const r of retailData) {
-        const key = new Date(r.date).toISOString().slice(0, 10);
+        const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
         if (!skuDailyUnits.has(r.sku)) skuDailyUnits.set(r.sku, new Map());
         const m = skuDailyUnits.get(r.sku)!;
         m.set(key, (m.get(key) ?? 0) + r.units);
@@ -376,7 +359,7 @@ async function enrichDemandSignal(orgId: string, signal: LiveSignal): Promise<En
     affectedItems.sort((a, b) => parseFloat(b.impact) - parseFloat(a.impact));
 
     // Check for weather context
-    const weatherData = await WeatherRecord.find({ organizationId: orgId }).sort({ date: -1 }).limit(14).lean();
+    const weatherData = (await listWeatherByOrg(orgId)).slice(0, 14);
     let weatherContext = '';
     if (weatherData.length > 0) {
         const avgTemp = weatherData.reduce((s, w) => s + w.temp_max, 0) / weatherData.length;

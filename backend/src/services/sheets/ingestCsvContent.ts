@@ -1,11 +1,9 @@
 import { parse } from 'csv-parse/sync';
-import { buildColumnMap, normalizeRow, CanonicalKey } from '../../utils/columnNormalizer';
+import { buildColumnMap, normalizeRow } from '../../utils/columnNormalizer';
 import { validateRetailRow } from '../../utils/retailValidation';
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { TrafficRecord } from '../../models/TrafficRecord';
+import { deleteBySourceId, batchPutRetail } from '../../db/retailRecordRepo';
+import { deleteOrdersBySourceId, batchPutOrders } from '../../db/orderRepo';
+import { deleteInventoryBySourceId, batchPutInventory } from '../../db/inventoryRepo';
 
 const MAX_ROWS = 10_000;
 
@@ -174,12 +172,11 @@ async function ingestAsRetail(
         return { dataType: 'retail', inserted: 0, skipped, dateRange: null };
     }
 
-    // Replace existing data from same source for clean sync
     if (replaceExisting) {
-        await RetailRecord.deleteMany({ sourceId });
+        await deleteBySourceId(sourceId);
     }
 
-    await RetailRecord.insertMany(validRows);
+    await batchPutRetail(organizationId, sourceId, validRows);
 
     const dates = validRows.map(r => r.date.getTime());
     return {
@@ -236,11 +233,11 @@ async function ingestAsOrders(
         .filter(r => r.order_id && r.sku);
 
     if (replaceExisting) {
-        await OrderRecord.deleteMany({ sourceId });
+        await deleteOrdersBySourceId(sourceId);
     }
 
     if (toInsert.length > 0) {
-        await OrderRecord.insertMany(toInsert);
+        await batchPutOrders(organizationId, sourceId, toInsert);
     }
 
     const dates = toInsert.filter(r => !isNaN(r.date.getTime())).map(r => r.date.getTime());
@@ -283,11 +280,11 @@ async function ingestAsInventory(
         .filter(r => r.sku);
 
     if (replaceExisting) {
-        await InventoryRecord.deleteMany({ sourceId });
+        await deleteInventoryBySourceId(sourceId);
     }
 
     if (toInsert.length > 0) {
-        await InventoryRecord.insertMany(toInsert);
+        await batchPutInventory(organizationId, sourceId, toInsert);
     }
 
     const dates = toInsert.filter(r => !isNaN(r.date.getTime())).map(r => r.date.getTime());

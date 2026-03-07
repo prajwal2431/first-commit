@@ -2,14 +2,27 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import mongoose from 'mongoose';
-import { DataSource } from '../models/DataSource';
-import { RawIngestionRecord } from '../models/RawIngestionRecord';
+import {
+  listDataSourcesByOrg,
+  getDataSource,
+  createDataSource,
+  deleteDataSource,
+} from '../db/dataSourceRepo';
+import { listRawBySourceId, deleteRawBySourceId } from '../db/rawIngestionRecordRepo';
+import { deleteBySourceId } from '../db/retailRecordRepo';
+import { deleteOrdersBySourceId } from '../db/orderRepo';
+import { deleteInventoryBySourceId } from '../db/inventoryRepo';
+import { deleteFulfilmentBySourceId } from '../db/fulfilmentRecordRepo';
+import { deleteTrafficBySourceId } from '../db/trafficRecordRepo';
 import { handleExcelUpload, handleCsvUpload } from '../controllers/uploadController';
 import { syncSingleSheetSource } from '../services/sheets';
 import { computeAllMonitors } from '../services/monitors/computeAll';
 
 const PREVIEW_LIMIT = 100;
+
+function isValidId(id: string): boolean {
+  return typeof id === 'string' && id.trim().length > 0;
+}
 
 const router = Router();
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
@@ -49,9 +62,7 @@ const upload = multer({
 router.get('/', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
-    const list = await DataSource.find({ organizationId: orgId })
-      .sort({ uploadedAt: -1 })
-      .lean();
+    const list = await listDataSourcesByOrg(orgId);
     res.json(list);
   } catch (err) {
     console.error('List data sources error:', err);
@@ -65,12 +76,10 @@ router.post('/', async (req: Request, res: Response) => {
     const userId = req.user?.userId ?? 'default';
     const { name, label, type, domain, mode, sourceUrl, sheetsUrl } = req.body;
 
-    // Use either sheetsUrl or sourceUrl if mode is Sheets
     const finalUrl = sheetsUrl || sourceUrl;
     const isSheets = mode === 'Sheets' && finalUrl;
 
-    // Create new DataSource model instance
-    const newSource = await DataSource.create({
+    const newSource = await createDataSource({
       userId,
       organizationId: orgId,
       fileName: name || label || 'Integration',
@@ -85,13 +94,11 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.status(201).json(newSource);
 
-    // For sheets sources: trigger immediate sync in the background
     if (isSheets) {
       syncSingleSheetSource(newSource)
         .then((result) => {
           if (result && result.inserted > 0) {
             console.log(`[data-sources] Initial sheet sync done: ${result.inserted} records (${result.dataType})`);
-            // Recompute monitors with fresh data
             return computeAllMonitors(orgId);
           }
         })
@@ -107,30 +114,28 @@ router.post('/', async (req: Request, res: Response) => {
 
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const id = req.params.id.trim();
+    if (!isValidId(id)) {
       return res.status(400).json({ message: 'Invalid data source ID' });
     }
     const orgId = req.user?.tenantId ?? 'default';
 
-    // Delete source
-    const result = await DataSource.deleteOne({ _id: id, organizationId: orgId });
-    if (result.deletedCount === 0) {
+    const source = await getDataSource(orgId, id);
+    if (!source) {
       return res.status(404).json({ message: 'Data source not found' });
     }
 
-    // Cleanup related records from all collections
-    const sourceIdStr = String(id);
+    await deleteDataSource(orgId, id);
     await Promise.all([
-      RawIngestionRecord.deleteMany({ sourceId: sourceIdStr }),
-      // Also clean typed records (for sheets sources)
-      import('../models/RetailRecord').then(m => m.RetailRecord.deleteMany({ sourceId: sourceIdStr })),
-      import('../models/OrderRecord').then(m => m.OrderRecord.deleteMany({ sourceId: sourceIdStr })),
-      import('../models/InventoryRecord').then(m => m.InventoryRecord.deleteMany({ sourceId: sourceIdStr })),
+      deleteRawBySourceId(id),
+      deleteBySourceId(id),
+      deleteOrdersBySourceId(id),
+      deleteInventoryBySourceId(id),
+      deleteFulfilmentBySourceId(id),
+      deleteTrafficBySourceId(id),
     ]);
 
-    // Recompute monitors after data removal
-    computeAllMonitors(orgId).catch(err => console.error('Post-delete recompute failed:', err));
+    computeAllMonitors(orgId).catch((err) => console.error('Post-delete recompute failed:', err));
 
     res.status(200).json({ message: 'Data source deleted successfully' });
   } catch (err) {
@@ -139,15 +144,14 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/data-sources/:id/sync — manually trigger sync for a sheet source
 router.post('/:id/sync', async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const id = req.params.id.trim();
+    if (!isValidId(id)) {
       return res.status(400).json({ message: 'Invalid data source ID' });
     }
     const orgId = req.user?.tenantId ?? 'default';
-    const source = await DataSource.findOne({ _id: id, organizationId: orgId });
+    const source = await getDataSource(orgId, id);
     if (!source) {
       return res.status(404).json({ message: 'Data source not found' });
     }
@@ -155,7 +159,6 @@ router.post('/:id/sync', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'This data source does not have a Google Sheets URL' });
     }
 
-    // Run sync
     const result = await syncSingleSheetSource(source);
     if (result && result.inserted > 0) {
       await computeAllMonitors(orgId);
@@ -174,21 +177,17 @@ router.post('/:id/sync', async (req: Request, res: Response) => {
 
 router.get('/:id/records', async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const id = req.params.id.trim();
+    if (!isValidId(id)) {
       return res.status(400).json({ message: 'Invalid data source ID' });
     }
     const orgId = req.user?.tenantId ?? 'default';
-    const source = await DataSource.findOne({ _id: id, organizationId: orgId }).lean();
+    const source = await getDataSource(orgId, id);
     if (!source) {
       return res.status(404).json({ message: 'Data source not found' });
     }
 
-    const sourceIdStr = String(id);
-    const rawDocs = await RawIngestionRecord.find({ sourceId: sourceIdStr })
-      .sort({ rowIndex: 1 })
-      .limit(PREVIEW_LIMIT)
-      .lean();
+    const rawDocs = await listRawBySourceId(id, PREVIEW_LIMIT);
     const records = rawDocs.map((d) => ({ rowIndex: d.rowIndex, ...d.data }));
 
     res.json({
@@ -216,7 +215,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
   const dataType = (req.body?.dataType as string) || 'auto';
 
   if (ext === '.csv') {
-    return handleCsvUpload(req, req.file.path, fileName, dataType as any, res);
+    return handleCsvUpload(req, req.file.path, fileName, dataType as 'auto' | 'retail' | 'orders' | 'inventory', res);
   }
   return handleExcelUpload(req, req.file.path, fileName, res);
 });

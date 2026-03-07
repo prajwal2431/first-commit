@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { DashboardState } from '../models/DashboardState';
+import { getDashboardState } from '../db/dashboardStateRepo';
 import { computeAllMonitors } from '../services/monitors/computeAll';
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
-    const state = await DashboardState.findOne({ organizationId: orgId }).lean();
+    const state = await getDashboardState(orgId);
 
     if (!state) {
       return res.json({
@@ -20,7 +20,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     res.json({
       revenueAtRiskSeries: state.revenueAtRiskSeries,
-      liveSignals: state.liveSignals.filter((s: any) => !state.resolvedSignalIds?.includes(s.id)),
+      liveSignals: state.liveSignals.filter((s) => !state.resolvedSignalIds?.includes(s.id)),
       kpiSummary: state.kpiSummary,
       lastComputedAt: state.lastComputedAt,
     });
@@ -34,11 +34,11 @@ router.post('/refresh', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
     await computeAllMonitors(orgId);
-    const state = await DashboardState.findOne({ organizationId: orgId }).lean();
-    if (state) {
-      state.liveSignals = state.liveSignals.filter((s: any) => !state.resolvedSignalIds?.includes(s.id));
-    }
-    res.json(state ?? { message: 'No data to compute' });
+    const state = await getDashboardState(orgId);
+    const payload = state
+      ? { ...state, liveSignals: state.liveSignals.filter((s) => !state.resolvedSignalIds?.includes(s.id)) }
+      : { message: 'No data to compute' };
+    res.json(payload);
   } catch (err) {
     console.error('Dashboard refresh error:', err);
     res.status(500).json({ message: 'Failed to refresh dashboard' });

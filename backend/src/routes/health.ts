@@ -1,27 +1,15 @@
 import { Router, Request, Response } from 'express';
-import mongoose from 'mongoose';
+import { checkDynamoReady } from '../config/db';
 
 const router = Router();
 
-router.get('/health', (_req: Request, res: Response) => {
-  const dbReadyState = mongoose.connection.readyState;
-  const dbStatusByReadyState: Record<number, string> = {
-    0: 'disconnected',
-    1: 'connected',
-    2: 'connecting',
-    3: 'disconnecting'
-  };
-
-  const dbStatus = dbStatusByReadyState[dbReadyState] ?? 'unknown';
-  const isHealthy = dbReadyState === 1;
-
-  res.status(isHealthy ? 200 : 503).json({
-    status: isHealthy ? 'ok' : 'degraded',
+router.get('/health', async (_req: Request, res: Response) => {
+  const dbReady = await checkDynamoReady();
+  res.status(dbReady ? 200 : 503).json({
+    status: dbReady ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.round(process.uptime()),
-    database: {
-      status: dbStatus
-    }
+    database: { status: dbReady ? 'connected' : 'unavailable' },
   });
 });
 

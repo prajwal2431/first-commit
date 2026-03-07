@@ -1,9 +1,9 @@
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { LiveSignal, RevenueSeriesPoint, RARDecomposition } from '../../models/DashboardState';
-import { SignalThresholds } from '../../models/OrgSettings';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import { listInventoryByOrg } from '../../db/inventoryRepo';
+import { listFulfilmentByOrg } from '../../db/fulfilmentRecordRepo';
+import type { LiveSignal, RevenueSeriesPoint, RARDecomposition } from '../../models/DashboardState';
+import type { SignalThresholds } from '../../models/OrgSettings';
 import crypto from 'crypto';
 
 interface RevenueKpis {
@@ -38,13 +38,8 @@ export async function computeRevenueAtRisk(
     revenueAtRiskTotal: 0, rarDecomposition: emptyDecomposition,
   };
 
-  const retailData = await RetailRecord.find({ organizationId })
-    .sort({ date: 1 })
-    .lean();
-
-  const orderData = await OrderRecord.find({ organizationId })
-    .sort({ date: 1 })
-    .lean();
+  const retailData = await listRetailByOrg(organizationId);
+  const orderData = await listOrdersByOrg(organizationId);
 
   if (retailData.length === 0 && orderData.length === 0) {
     return { series: [], signals: [], kpis: emptyKpis };
@@ -54,7 +49,7 @@ export async function computeRevenueAtRisk(
   const dailyMap = new Map<string, { revenue: number; traffic: number; orders: number; units: number }>();
 
   for (const r of retailData) {
-    const key = new Date(r.date).toISOString().slice(0, 10);
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
     const existing = dailyMap.get(key) ?? { revenue: 0, traffic: 0, orders: 0, units: 0 };
     existing.revenue += r.revenue;
     existing.traffic += r.traffic;
@@ -64,7 +59,7 @@ export async function computeRevenueAtRisk(
   }
 
   for (const o of orderData) {
-    const key = new Date(o.date).toISOString().slice(0, 10);
+    const key = typeof o.date === 'string' ? o.date.slice(0, 10) : new Date(o.date).toISOString().slice(0, 10);
     const existing = dailyMap.get(key) ?? { revenue: 0, traffic: 0, orders: 0, units: 0 };
     existing.revenue += o.revenue;
     existing.orders += 1;
@@ -140,12 +135,11 @@ export async function computeRevenueAtRisk(
 
     // 2. Inventory leak — check for OOS in high-demand SKUs
     try {
-      const inventoryData = await InventoryRecord.find({ organizationId })
-        .sort({ date: -1 }).limit(200).lean();
-      const oosSkus = inventoryData.filter((r: any) => r.available_qty <= 0);
+      const inventoryData = await listInventoryByOrg(organizationId, 500);
+      const oosSkus = inventoryData.filter((r) => r.available_qty <= 0);
       if (oosSkus.length > 0) {
         // Estimate lost revenue from OOS SKUs by looking at their prior revenue contribution
-        const oosSkuNames = new Set(oosSkus.map((r: any) => r.sku));
+        const oosSkuNames = new Set(oosSkus.map((r) => r.sku));
         const priorRevBySku = retailData
           .filter((r) => oosSkuNames.has(r.sku))
           .reduce((s, r) => s + r.revenue, 0);
@@ -157,11 +151,10 @@ export async function computeRevenueAtRisk(
 
     // 3. Ops leak — returns and cancellations eroding revenue
     try {
-      const fulfilmentData = await FulfilmentRecord.find({ organizationId })
-        .sort({ dispatch_date: -1 }).limit(500).lean();
+      const fulfilmentData = await listFulfilmentByOrg(organizationId);
       const total = fulfilmentData.length;
-      const returned = fulfilmentData.filter((r: any) => r.status === 'rto' || r.status === 'returned');
-      const cancelled = fulfilmentData.filter((r: any) => r.status === 'cancelled');
+      const returned = fulfilmentData.filter((r) => r.status === 'rto' || r.status === 'returned');
+      const cancelled = fulfilmentData.filter((r) => r.status === 'cancelled');
       if (total > 0) {
         const aov = recentOrders > 0 ? recentRevenue / recentOrders : 500;
         rarDecomposition.opsLeak = Math.round((returned.length + cancelled.length) * aov * 0.3);
@@ -202,7 +195,7 @@ export async function computeRevenueAtRisk(
         description: `Weekly revenue fell from ₹${formatNum(priorRevenue)} to ₹${formatNum(recentRevenue)}`,
         suggestedQuery: 'Why is revenue dropping this week?',
         evidenceSnippet: `Revenue declined ${Math.abs(revDelta).toFixed(1)}% compared to previous week`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           revenueAtRisk: Math.round(totalRAR),
           confidence,
@@ -225,7 +218,7 @@ export async function computeRevenueAtRisk(
         description: `Traffic up ${trafficDelta.toFixed(0)}% but revenue down ${Math.abs(revDelta).toFixed(0)}%`,
         suggestedQuery: 'Why is revenue dropping despite high traffic?',
         evidenceSnippet: `Traffic-revenue gap: traffic +${trafficDelta.toFixed(0)}% vs revenue ${revDelta.toFixed(0)}%`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           revenueAtRisk: Math.round(rarDecomposition.conversionLeak),
           confidence,
@@ -254,7 +247,7 @@ export async function computeRevenueAtRisk(
         description: `Revenue fell from ₹${formatNum(prev.revenue)} to ₹${formatNum(last.revenue)}`,
         suggestedQuery: 'What caused the sudden revenue drop today?',
         evidenceSnippet: `DoD revenue decline of ${Math.abs(dodDelta).toFixed(1)}%`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           revenueAtRisk: Math.round(prev.revenue - last.revenue),
           confidence,
@@ -264,7 +257,7 @@ export async function computeRevenueAtRisk(
     }
 
     // Signal 4: Top SKU revenue drop
-    const topSkusByRevenue = await getTopSkuContributors(organizationId, recentDays, priorDays);
+    const topSkusByRevenue = await getTopSkuContributors(retailData, recentDays, priorDays);
     if (topSkusByRevenue.length > 0) {
       const worstSku = topSkusByRevenue[0];
       if (worstSku.delta < -thresholds.topSkuRevenueDrop) {
@@ -276,7 +269,7 @@ export async function computeRevenueAtRisk(
           description: `${worstSku.sku} revenue down ${Math.abs(worstSku.delta).toFixed(0)}%`,
           suggestedQuery: `Why is ${worstSku.sku} revenue dropping?`,
           evidenceSnippet: `SKU ${worstSku.sku} contributed ₹${formatNum(worstSku.lostRevenue)} in lost revenue`,
-          detectedAt: new Date(),
+          detectedAt: new Date().toISOString(),
           impact: {
             revenueAtRisk: Math.round(worstSku.lostRevenue),
             confidence: computeConfidence(sortedDays.length, true, true),
@@ -302,7 +295,7 @@ export async function computeRevenueAtRisk(
         description: `Average order value fell from ₹${Math.round(priorAov)} to ₹${Math.round(aov)}`,
         suggestedQuery: 'Why has average order value dropped?',
         evidenceSnippet: `AOV dropped ${Math.abs(aovDeltaPct).toFixed(1)}% WoW`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           revenueAtRisk: Math.round(recentOrders * (priorAov - aov)),
           confidence: computeConfidence(sortedDays.length, true, true),
@@ -379,47 +372,38 @@ function computeConfidence(dataPointCount: number, hasTraffic: boolean, hasMulti
 }
 
 async function getTopSkuContributors(
-  organizationId: string,
+  retailData: Array<{ date: string; sku: string; revenue: number }>,
   recentDays: [string, { revenue: number }][],
   priorDays: [string, { revenue: number }][]
 ): Promise<Array<{ sku: string; delta: number; lostRevenue: number }>> {
-  const recentDates = recentDays.map(([d]) => d);
-  const priorDates = priorDays.map(([d]) => d);
+  const recentDates = new Set(recentDays.map(([d]) => d));
+  const priorDates = new Set(priorDays.map(([d]) => d));
 
-  const [recentSkus, priorSkus] = await Promise.all([
-    RetailRecord.aggregate([
-      {
-        $match: {
-          organizationId,
-          $expr: {
-            $in: [{ $dateToString: { format: '%Y-%m-%d', date: '$date' } }, recentDates],
-          },
-        },
-      },
-      { $group: { _id: '$sku', revenue: { $sum: '$revenue' } } },
-      { $sort: { revenue: -1 } },
-      { $limit: 20 },
-    ]),
-    RetailRecord.aggregate([
-      {
-        $match: {
-          organizationId,
-          $expr: {
-            $in: [{ $dateToString: { format: '%Y-%m-%d', date: '$date' } }, priorDates],
-          },
-        },
-      },
-      { $group: { _id: '$sku', revenue: { $sum: '$revenue' } } },
-    ]),
-  ]);
+  const recentBySku = new Map<string, number>();
+  const priorBySku = new Map<string, number>();
 
-  const priorMap = new Map(priorSkus.map((s: any) => [s._id, s.revenue as number]));
+  for (const r of retailData) {
+    const dateStr = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    if (recentDates.has(dateStr)) {
+      recentBySku.set(r.sku, (recentBySku.get(r.sku) ?? 0) + r.revenue);
+    }
+    if (priorDates.has(dateStr)) {
+      priorBySku.set(r.sku, (priorBySku.get(r.sku) ?? 0) + r.revenue);
+    }
+  }
+
+  const recentSkus = Array.from(recentBySku.entries())
+    .map(([_id, revenue]) => ({ _id, revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 20);
+
+  const priorMap = priorBySku;
 
   return recentSkus
-    .map((s: any) => {
+    .map((s) => {
       const prior = priorMap.get(s._id) ?? 0;
       const delta = prior > 0 ? ((s.revenue - prior) / prior) * 100 : 0;
-      return { sku: s._id as string, delta, lostRevenue: prior - s.revenue };
+      return { sku: s._id, delta, lostRevenue: prior - s.revenue };
     })
     .filter((s) => s.delta < 0)
     .sort((a, b) => a.delta - b.delta);

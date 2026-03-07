@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 import * as XLSX from 'xlsx';
-import { RawIngestionRecord } from '../models/RawIngestionRecord';
+import { batchPutRaw } from '../db/rawIngestionRecordRepo';
 
 const MAX_ROWS = 50000;
 
@@ -68,12 +68,10 @@ export async function ingestRawCsv(
     return { inserted: 0, totalRows: 0 };
   }
   const toInsert = rows.map((row, i) => ({
-    sourceId,
-    organizationId,
     rowIndex: i,
     data: toStorableData(row as Record<string, unknown>),
   }));
-  await RawIngestionRecord.insertMany(toInsert);
+  await batchPutRaw(sourceId, toInsert);
   return { inserted: toInsert.length, totalRows: rows.length };
 }
 
@@ -90,11 +88,9 @@ export async function ingestRawExcel(
     return { inserted: 0, totalRows: 0 };
   }
   const toInsert = rows.map((row, i) => ({
-    sourceId,
-    organizationId,
     rowIndex: i,
     data: toStorableData(row),
   }));
-  await RawIngestionRecord.insertMany(toInsert);
+  await batchPutRaw(sourceId, toInsert);
   return { inserted: toInsert.length, totalRows: rows.length };
 }

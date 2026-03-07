@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import fs from 'fs';
-import { WeatherRecord } from '../models/WeatherRecord';
+import { batchPutWeather } from '../db/weatherRecordRepo';
 
 const MAX_ROWS = 10000;
 
@@ -63,8 +63,6 @@ export async function parseWeatherCsv(
     if (isNaN(d.getTime())) continue;
 
     toInsert.push({
-      sourceId,
-      organizationId,
       date: d,
       region: obj.region,
       temp_min: Number(obj.temp_min) || 0,
@@ -75,7 +73,7 @@ export async function parseWeatherCsv(
   }
 
   if (toInsert.length > 0) {
-    await WeatherRecord.insertMany(toInsert);
+    await batchPutWeather(organizationId, toInsert as Parameters<typeof batchPutWeather>[1]);
   }
   return { inserted: toInsert.length };
 }

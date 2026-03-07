@@ -1,18 +1,22 @@
-import mongoose from 'mongoose';
+import { DescribeTableCommand } from '@aws-sdk/client-dynamodb';
+import { dynamoClient, TableNames } from './dynamo';
 
-const MONGODB_URI = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/decision-intelligence';
-
-export async function connectDb(): Promise<void> {
+/**
+ * Optional: verify DynamoDB is reachable by describing one table.
+ * Not required for startup; the app can run without this.
+ */
+export async function checkDynamoReady(): Promise<boolean> {
   try {
-    await mongoose.connect(MONGODB_URI);
-    console.log('MongoDB connected');
-  } catch (err) {
-    console.error('MongoDB connection error:', err);
-    throw err;
+    await dynamoClient.send(
+      new DescribeTableCommand({ TableName: TableNames.dashboardStates })
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
+/** No-op for compatibility; DynamoDB has no connection to close. */
 export async function disconnectDb(): Promise<void> {
-  await mongoose.disconnect();
-  console.log('MongoDB disconnected');
+  // DynamoDB client does not require disconnect
 }

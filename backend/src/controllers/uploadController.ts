@@ -1,7 +1,6 @@
 import { Response, Request } from 'express';
 import fs from 'fs';
-import path from 'path';
-import { DataSource } from '../models/DataSource';
+import { createDataSource, updateDataSource } from '../db/dataSourceRepo';
 import { ingestRawCsv, ingestRawExcel } from '../services/ingestRaw';
 import { parseRetailCsv } from '../services/parseRetailCsv';
 import { parseExcelFile } from '../services/parseExcel';
@@ -21,7 +20,11 @@ function getUserId(req: Request): string {
 }
 
 function cleanupFile(filePath: string): void {
-  try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(filePath);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function handleExcelUpload(
@@ -35,7 +38,7 @@ export async function handleExcelUpload(
 
   let doc;
   try {
-    doc = await DataSource.create({
+    doc = await createDataSource({
       userId,
       organizationId: orgId,
       fileName,
@@ -43,29 +46,30 @@ export async function handleExcelUpload(
       status: 'processing',
     });
 
-    await ingestRawExcel(filePath, String(doc._id), orgId);
+    await ingestRawExcel(filePath, doc.sourceId, orgId);
 
-    const structuredResult = await parseExcelFile(filePath, String(doc._id), orgId);
+    const structuredResult = await parseExcelFile(filePath, doc.sourceId, orgId);
 
-    doc.status = 'completed';
-    doc.recordCount = structuredResult.recordCount;
-    await doc.save();
+    await updateDataSource(orgId, doc.sourceId, {
+      status: 'completed',
+      recordCount: structuredResult.recordCount,
+    });
     cleanupFile(filePath);
 
-    triggerMonitorRecompute(orgId);
+    computeAllMonitors(orgId).catch((err) => {
+      console.error('Background monitor recompute failed:', err);
+    });
 
     res.status(201).json({
-      dataSourceId: doc._id,
-      status: doc.status,
-      recordCount: doc.recordCount,
+      dataSourceId: doc.sourceId,
+      status: 'completed',
+      recordCount: structuredResult.recordCount,
       dataType: structuredResult.dataType,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Parse failed';
     if (doc) {
-      doc.status = 'failed';
-      doc.errorMessage = message;
-      await doc.save().catch(() => { });
+      await updateDataSource(orgId, doc.sourceId, { status: 'failed', errorMessage: message }).catch(() => {});
     }
     cleanupFile(filePath);
     res.status(400).json({ message });
@@ -84,7 +88,7 @@ export async function handleCsvUpload(
 
   let doc;
   try {
-    doc = await DataSource.create({
+    doc = await createDataSource({
       userId,
       organizationId: orgId,
       fileName,
@@ -92,30 +96,30 @@ export async function handleCsvUpload(
       status: 'processing',
     });
 
-    await ingestRawCsv(filePath, String(doc._id), orgId);
+    await ingestRawCsv(filePath, doc.sourceId, orgId);
 
     let recordCount = 0;
     let detectedType: string = dataType;
 
     switch (dataType) {
       case 'traffic': {
-        const r = await parseTrafficCsv(filePath, String(doc._id), orgId);
+        const r = await parseTrafficCsv(filePath, doc.sourceId, orgId);
         recordCount = r.inserted;
         break;
       }
       case 'fulfilment': {
-        const r = await parseFulfilmentCsv(filePath, String(doc._id), orgId);
+        const r = await parseFulfilmentCsv(filePath, doc.sourceId, orgId);
         recordCount = r.inserted;
         break;
       }
       case 'weather': {
-        const r = await parseWeatherCsv(filePath, String(doc._id), orgId);
+        const r = await parseWeatherCsv(filePath, doc.sourceId, orgId);
         recordCount = r.inserted;
         break;
       }
       case 'orders':
       case 'inventory': {
-        const r = await parseExcelFile(filePath, String(doc._id), orgId);
+        const r = await parseExcelFile(filePath, doc.sourceId, orgId);
         recordCount = r.recordCount;
         detectedType = r.dataType;
         break;
@@ -124,11 +128,11 @@ export async function handleCsvUpload(
       case 'auto':
       default: {
         try {
-          const r = await parseRetailCsv(filePath, String(doc._id), orgId);
+          const r = await parseRetailCsv(filePath, doc.sourceId, orgId);
           recordCount = r.inserted;
           detectedType = 'retail';
         } catch {
-          const r = await parseExcelFile(filePath, String(doc._id), orgId);
+          const r = await parseExcelFile(filePath, doc.sourceId, orgId);
           recordCount = r.recordCount;
           detectedType = r.dataType;
         }
@@ -136,33 +140,25 @@ export async function handleCsvUpload(
       }
     }
 
-    doc.status = 'completed';
-    doc.recordCount = recordCount;
-    await doc.save();
+    await updateDataSource(orgId, doc.sourceId, { status: 'completed', recordCount });
     cleanupFile(filePath);
 
-    triggerMonitorRecompute(orgId);
+    computeAllMonitors(orgId).catch((err) => {
+      console.error('Background monitor recompute failed:', err);
+    });
 
     res.status(201).json({
-      dataSourceId: doc._id,
-      status: doc.status,
+      dataSourceId: doc.sourceId,
+      status: 'completed',
       recordCount,
       dataType: detectedType,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Parse failed';
     if (doc) {
-      doc.status = 'failed';
-      doc.errorMessage = message;
-      await doc.save().catch(() => { });
+      await updateDataSource(orgId, doc.sourceId, { status: 'failed', errorMessage: message }).catch(() => {});
     }
     cleanupFile(filePath);
     res.status(400).json({ message });
   }
-}
-
-function triggerMonitorRecompute(orgId: string): void {
-  computeAllMonitors(orgId).catch((err) => {
-    console.error('Background monitor recompute failed:', err);
-  });
 }

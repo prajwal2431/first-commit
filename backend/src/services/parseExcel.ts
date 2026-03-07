@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
-import { OrderRecord } from '../models/OrderRecord';
-import { InventoryRecord } from '../models/InventoryRecord';
+import { batchPutOrders } from '../db/orderRepo';
+import { batchPutInventory } from '../db/inventoryRepo';
 
 const MAX_ROWS = 10000; // prototype limit
 
@@ -102,7 +102,7 @@ export async function parseExcelFile(
       });
     }
     if (toInsert.length > 0) {
-      await OrderRecord.insertMany(toInsert);
+      await batchPutOrders(organizationId, sourceId, toInsert);
     }
     return { dataType: 'orders', recordCount: toInsert.length };
   }
@@ -134,7 +134,7 @@ export async function parseExcelFile(
       });
     }
     if (toInsert.length > 0) {
-      await InventoryRecord.insertMany(toInsert);
+      await batchPutInventory(organizationId, sourceId, toInsert);
     }
     return { dataType: 'inventory', recordCount: toInsert.length };
   }

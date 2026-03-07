@@ -1,11 +1,11 @@
 import { HypothesisTemplate } from './hypothesisLibrary';
 import { DetectedAnomaly } from './anomalyDetector';
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { TrafficRecord } from '../../models/TrafficRecord';
-import { WeatherRecord } from '../../models/WeatherRecord';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import { listInventoryByOrg } from '../../db/inventoryRepo';
+import { listFulfilmentByOrg } from '../../db/fulfilmentRecordRepo';
+import { listTrafficByOrg } from '../../db/trafficRecordRepo';
+import { listWeatherByOrg } from '../../db/weatherRecordRepo';
 import festivalCalendar from '../../data/festival_calendar.json';
 
 export interface TestedHypothesis {
@@ -73,23 +73,31 @@ async function testStockoutHypothesis(
   const affectedRegions: string[] = [];
   let lostRevenue = 0;
 
-  const latestInventory = await InventoryRecord.aggregate([
-    { $match: { organizationId } },
-    { $sort: { date: -1 } },
-    { $group: { _id: { sku: '$sku', location: '$location' }, qty: { $first: '$available_qty' } } },
-  ]);
+  const invData = await listInventoryByOrg(organizationId);
+  const bySkuLoc = new Map<string, { _id: { sku: string; location: string }; qty: number }>();
+  for (const r of invData) {
+    const key = `${r.sku}|${r.location}`;
+    if (!bySkuLoc.has(key)) bySkuLoc.set(key, { _id: { sku: r.sku, location: r.location }, qty: r.available_qty });
+  }
+  const latestInventory = Array.from(bySkuLoc.values());
+  const oosItems = latestInventory.filter((i) => i.qty <= 0);
 
-  const oosItems = latestInventory.filter((i: any) => i.qty <= 0);
+  const retailData = await listRetailByOrg(organizationId);
+  const skuRev = new Map<string, { totalRev: number; sumUnits: number; count: number }>();
+  for (const r of retailData) {
+    const ex = skuRev.get(r.sku) ?? { totalRev: 0, sumUnits: 0, count: 0 };
+    ex.totalRev += r.revenue;
+    ex.sumUnits += r.units;
+    ex.count += 1;
+    skuRev.set(r.sku, ex);
+  }
+  const topSkus = Array.from(skuRev.entries())
+    .map(([_id, d]) => ({ _id, totalRev: d.totalRev, avgUnits: d.count > 0 ? d.sumUnits / d.count : 0 }))
+    .sort((a, b) => b.totalRev - a.totalRev)
+    .slice(0, 20);
 
-  const topSkus = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    { $group: { _id: '$sku', totalRev: { $sum: '$revenue' }, avgUnits: { $avg: '$units' } } },
-    { $sort: { totalRev: -1 } },
-    { $limit: 20 },
-  ]);
-
-  const topSkuSet = new Set(topSkus.map((s: any) => s._id));
-  const oosTopSkus = oosItems.filter((i: any) => topSkuSet.has(i._id.sku));
+  const topSkuSet = new Set(topSkus.map((s) => s._id));
+  const oosTopSkus = oosItems.filter((i) => topSkuSet.has(i._id.sku));
 
   if (oosTopSkus.length > 0) {
     evidence.push({
@@ -102,44 +110,49 @@ async function testStockoutHypothesis(
     for (const oos of oosTopSkus) {
       affectedSkus.push(oos._id.sku);
       affectedRegions.push(oos._id.location);
-      const skuData = topSkus.find((s: any) => s._id === oos._id.sku);
+      const skuData = topSkus.find((s) => s._id === oos._id.sku);
       if (skuData) lostRevenue += skuData.avgUnits * 7 * (skuData.totalRev / (skuData.avgUnits * 45 || 1));
     }
   }
 
-  const retailWithDemand = await RetailRecord.aggregate([
-    { $match: { organizationId, sku: { $in: affectedSkus } } },
-    { $sort: { date: -1 } },
-    { $limit: 100 },
-    { $group: { _id: '$sku', recentTraffic: { $sum: '$traffic' }, recentUnits: { $sum: '$units' } } },
-  ]);
+  const affectedSet = new Set(affectedSkus);
+  const retailFiltered = retailData.filter((r) => affectedSet.has(r.sku)).slice(-100);
+  const demandBySku = new Map<string, { recentTraffic: number; recentUnits: number }>();
+  for (const r of retailFiltered) {
+    const ex = demandBySku.get(r.sku) ?? { recentTraffic: 0, recentUnits: 0 };
+    ex.recentTraffic += r.traffic;
+    ex.recentUnits += r.units;
+    demandBySku.set(r.sku, ex);
+  }
+  const retailWithDemand = Array.from(demandBySku.entries()).map(([_id, d]) => ({ _id, ...d }));
 
-  const demandDespiteOos = retailWithDemand.filter((r: any) => r.recentTraffic > 0 && r.recentUnits < 5);
+  const demandDespiteOos = retailWithDemand.filter((r) => r.recentTraffic > 0 && r.recentUnits < 5);
   if (demandDespiteOos.length > 0) {
     evidence.push({
       query: 'Active demand on OOS SKUs',
-      result: `${demandDespiteOos.length} OOS SKUs still receiving traffic: ${demandDespiteOos.map((r: any) => `${r._id} (${r.recentTraffic} sessions)`).join(', ')}`,
+      result: `${demandDespiteOos.length} OOS SKUs still receiving traffic: ${demandDespiteOos.map((r) => `${r._id} (${r.recentTraffic} sessions)`).join(', ')}`,
       supports: true,
     });
     confidence += 0.3;
     factors.push('Active demand meeting zero inventory');
   }
 
-  const stockElsewhere = await InventoryRecord.aggregate([
-    { $match: { organizationId, sku: { $in: affectedSkus } } },
-    { $sort: { date: -1 } },
-    { $group: { _id: { sku: '$sku', location: '$location' }, qty: { $first: '$available_qty' } } },
-    { $match: { qty: { $gt: 0 } } },
-  ]);
+  const invForSkus = invData.filter((r) => affectedSet.has(r.sku));
+  const stockElsewhereByKey = new Map<string, { _id: { sku: string; location: string }; qty: number }>();
+  for (const r of invForSkus) {
+    const key = `${r.sku}|${r.location}`;
+    if (!stockElsewhereByKey.has(key)) stockElsewhereByKey.set(key, { _id: { sku: r.sku, location: r.location }, qty: r.available_qty });
+  }
+  const stockElsewhere = Array.from(stockElsewhereByKey.values()).filter((s) => s.qty > 0);
 
   if (stockElsewhere.length > 0) {
     evidence.push({
       query: 'Stock availability at other locations',
-      result: `Stock found at: ${stockElsewhere.map((s: any) => `${s._id.sku}: ${s.qty} units at ${s._id.location}`).join(', ')}`,
+      result: `Stock found at: ${stockElsewhere.map((s) => `${s._id.sku}: ${s.qty} units at ${s._id.location}`).join(', ')}`,
       supports: true,
     });
     confidence += 0.2;
-    factors.push(`Stock trapped at other locations: ${stockElsewhere.map((s: any) => s._id.location).join(', ')}`);
+    factors.push(`Stock trapped at other locations: ${stockElsewhere.map((s) => s._id.location).join(', ')}`);
   }
 
   const revenueAnomaly = anomalies.find((a) => a.kpiName.includes('revenue'));
@@ -168,11 +181,13 @@ async function testTrafficDropHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const dailyTraffic = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } }, traffic: { $sum: '$traffic' } } },
-    { $sort: { _id: 1 } },
-  ]);
+  const retailForTraffic = await listRetailByOrg(organizationId);
+  const dailyTrafficMap = new Map<string, number>();
+  for (const r of retailForTraffic) {
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    dailyTrafficMap.set(key, (dailyTrafficMap.get(key) ?? 0) + r.traffic);
+  }
+  const dailyTraffic = Array.from(dailyTrafficMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([_id, traffic]) => ({ _id, traffic }));
 
   if (dailyTraffic.length < 14) {
     return makeInconclusiveWith('H2', 'Traffic drop', 'Insufficient traffic data for comparison');
@@ -180,8 +195,8 @@ async function testTrafficDropHypothesis(
 
   const recent = dailyTraffic.slice(-7);
   const prior = dailyTraffic.slice(-14, -7);
-  const recentTotal = recent.reduce((s: number, d: any) => s + d.traffic, 0);
-  const priorTotal = prior.reduce((s: number, d: any) => s + d.traffic, 0);
+  const recentTotal = recent.reduce((s, d) => s + d.traffic, 0);
+  const priorTotal = prior.reduce((s, d) => s + d.traffic, 0);
   const delta = priorTotal > 0 ? ((recentTotal - priorTotal) / priorTotal) * 100 : 0;
 
   if (delta < -10) {
@@ -200,22 +215,23 @@ async function testTrafficDropHypothesis(
     });
   }
 
-  const channelTraffic = await TrafficRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: '$channel',
-        totalSessions: { $sum: '$sessions' },
-        totalSpend: { $sum: '$spend' },
-      },
-    },
-    { $sort: { totalSessions: -1 } },
-  ]);
+  const trafficData = await listTrafficByOrg(organizationId);
+  const channelMap = new Map<string, { totalSessions: number; totalSpend: number }>();
+  for (const t of trafficData) {
+    const key = t.channel || 'default';
+    const ex = channelMap.get(key) ?? { totalSessions: 0, totalSpend: 0 };
+    ex.totalSessions += t.sessions;
+    ex.totalSpend += t.spend;
+    channelMap.set(key, ex);
+  }
+  const channelTraffic = Array.from(channelMap.entries())
+    .map(([_id, d]) => ({ _id, totalSessions: d.totalSessions, totalSpend: d.totalSpend }))
+    .sort((a, b) => b.totalSessions - a.totalSessions);
 
   if (channelTraffic.length > 0) {
     evidence.push({
       query: 'Traffic by channel',
-      result: channelTraffic.map((c: any) => `${c._id}: ${c.totalSessions} sessions, ₹${c.totalSpend} spend`).join('; '),
+      result: channelTraffic.map((c) => `${c._id}: ${c.totalSessions} sessions, ₹${c.totalSpend} spend`).join('; '),
       supports: delta < -10,
     });
     if (delta < -10) confidence += 0.2;
@@ -242,17 +258,16 @@ async function testPricePromoHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const dailyAOV = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        revenue: { $sum: '$revenue' },
-        units: { $sum: '$units' },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
+  const retailForAOV = await listRetailByOrg(organizationId);
+  const dailyAOVMap = new Map<string, { revenue: number; units: number }>();
+  for (const r of retailForAOV) {
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    const ex = dailyAOVMap.get(key) ?? { revenue: 0, units: 0 };
+    ex.revenue += r.revenue;
+    ex.units += r.units;
+    dailyAOVMap.set(key, ex);
+  }
+  const dailyAOV = Array.from(dailyAOVMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([_id, d]) => ({ _id, revenue: d.revenue, units: d.units }));
 
   if (dailyAOV.length < 14) {
     return makeInconclusiveWith('H3', 'Price/promo impact', 'Insufficient data');
@@ -260,8 +275,8 @@ async function testPricePromoHypothesis(
 
   const recent = dailyAOV.slice(-7);
   const prior = dailyAOV.slice(-14, -7);
-  const recentAOV = recent.reduce((s: number, d: any) => s + d.revenue, 0) / Math.max(recent.reduce((s: number, d: any) => s + d.units, 0), 1);
-  const priorAOV = prior.reduce((s: number, d: any) => s + d.revenue, 0) / Math.max(prior.reduce((s: number, d: any) => s + d.units, 0), 1);
+  const recentAOV = recent.reduce((s, d) => s + d.revenue, 0) / Math.max(recent.reduce((s, d) => s + d.units, 0), 1);
+  const priorAOV = prior.reduce((s, d) => s + d.revenue, 0) / Math.max(prior.reduce((s, d) => s + d.units, 0), 1);
   const aovDelta = priorAOV > 0 ? ((recentAOV - priorAOV) / priorAOV) * 100 : 0;
 
   if (Math.abs(aovDelta) > 10) {
@@ -301,17 +316,16 @@ async function testConversionHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const data = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        units: { $sum: '$units' },
-        traffic: { $sum: '$traffic' },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
+  const retailForCVR = await listRetailByOrg(organizationId);
+  const dataMap = new Map<string, { units: number; traffic: number }>();
+  for (const r of retailForCVR) {
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    const ex = dataMap.get(key) ?? { units: 0, traffic: 0 };
+    ex.units += r.units;
+    ex.traffic += r.traffic;
+    dataMap.set(key, ex);
+  }
+  const data = Array.from(dataMap.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([_id, d]) => ({ _id, units: d.units, traffic: d.traffic }));
 
   if (data.length < 14) {
     return makeInconclusiveWith('H4', 'Conversion rate collapse', 'Insufficient data');
@@ -320,10 +334,10 @@ async function testConversionHypothesis(
   const recent = data.slice(-7);
   const prior = data.slice(-14, -7);
 
-  const rTraffic = recent.reduce((s: number, d: any) => s + d.traffic, 0);
-  const pTraffic = prior.reduce((s: number, d: any) => s + d.traffic, 0);
-  const rUnits = recent.reduce((s: number, d: any) => s + d.units, 0);
-  const pUnits = prior.reduce((s: number, d: any) => s + d.units, 0);
+  const rTraffic = recent.reduce((s, d) => s + d.traffic, 0);
+  const pTraffic = prior.reduce((s, d) => s + d.traffic, 0);
+  const rUnits = recent.reduce((s, d) => s + d.units, 0);
+  const pUnits = prior.reduce((s, d) => s + d.units, 0);
 
   if (rTraffic === 0 || pTraffic === 0) {
     return makeInconclusiveWith('H4', 'Conversion rate collapse', 'No traffic data');
@@ -365,7 +379,7 @@ async function testFulfilmentHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const fulfilment = await FulfilmentRecord.find({ organizationId }).lean();
+  const fulfilment = await listFulfilmentByOrg(organizationId);
   if (fulfilment.length === 0) {
     return makeInconclusiveWith('H5', 'Fulfilment/SLA deterioration', 'No fulfilment data');
   }
@@ -418,12 +432,16 @@ async function testReturnsHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const fulfilment = await FulfilmentRecord.find({ organizationId }).lean();
+  const fulfilment = await listFulfilmentByOrg(organizationId);
   if (fulfilment.length === 0) {
-    const retail = await RetailRecord.aggregate([
-      { $match: { organizationId } },
-      { $group: { _id: null, totalUnits: { $sum: '$units' }, totalReturns: { $sum: '$returns' } } },
-    ]);
+    const retailDataReturns = await listRetailByOrg(organizationId);
+    let totalUnits = 0;
+    let totalReturns = 0;
+    for (const r of retailDataReturns) {
+      totalUnits += r.units;
+      totalReturns += r.returns;
+    }
+    const retail = totalUnits > 0 ? [{ totalUnits, totalReturns }] : [];
     if (retail.length > 0 && retail[0].totalUnits > 0) {
       const rr = (retail[0].totalReturns / retail[0].totalUnits) * 100;
       if (rr > 5) {
@@ -478,16 +496,11 @@ async function testFestivalHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const latestData = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    { $sort: { date: -1 } },
-    { $limit: 1 },
-  ]);
-
-  if (latestData.length === 0) {
+  const retailForFestival = await listRetailByOrg(organizationId);
+  if (retailForFestival.length === 0) {
     return makeInconclusiveWith('H7', 'Festival-driven demand shift', 'No data');
   }
-
+  const latestData = [{ date: retailForFestival[retailForFestival.length - 1]?.date ?? '' }];
   const latestDate = new Date(latestData[0].date);
   const nearbyFestivals = (festivalCalendar as any[]).filter((f) => {
     const fDate = new Date(f.date);
@@ -524,7 +537,7 @@ async function testWeatherHypothesis(
   let confidence = 0;
   const factors: string[] = [];
 
-  const weather = await WeatherRecord.find({ organizationId }).sort({ date: -1 }).lean();
+  const weather = await listWeatherByOrg(organizationId);
   if (weather.length === 0) {
     return makeInconclusiveWith('H8', 'Weather-driven category shift', 'No weather data available');
   }

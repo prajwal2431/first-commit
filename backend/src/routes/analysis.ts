@@ -1,12 +1,17 @@
 import { Router, Request, Response } from 'express';
-import mongoose from 'mongoose';
-import { AnalysisSession } from '../models/AnalysisSession';
+import {
+  getAnalysisSession,
+  createAnalysisSession,
+  updateAnalysisSession,
+  listAnalysisSessionsByOrg,
+  deleteAnalysisSession,
+} from '../db/analysisSessionRepo';
 import { runFullAnalysis } from '../services/analysis/runAnalysis';
 
 const router = Router();
 
 function isValidSessionId(id: string): boolean {
-  return typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+  return typeof id === 'string' && id.trim().length > 0;
 }
 
 const activeStreams = new Map<string, Set<Response>>();
@@ -20,7 +25,7 @@ router.post('/start', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Query is required' });
     }
 
-    const session = await AnalysisSession.create({
+    const session = await createAnalysisSession({
       organizationId: orgId,
       query,
       signalId,
@@ -28,44 +33,52 @@ router.post('/start', async (req: Request, res: Response) => {
     });
 
     runFullAnalysis(
-      String(session._id),
+      session.sessionId,
       orgId,
       (step) => {
-        const listeners = activeStreams.get(String(session._id));
+        const listeners = activeStreams.get(session.sessionId);
         if (listeners) {
           for (const client of listeners) {
             try {
               client.write(`data: ${JSON.stringify({ type: 'progress', step })}\n\n`);
-            } catch { /* client disconnected */ }
+            } catch {
+              /* client disconnected */
+            }
           }
         }
       }
-    ).then((result) => {
-      const listeners = activeStreams.get(String(session._id));
-      if (listeners) {
-        for (const client of listeners) {
-          try {
-            client.write(`data: ${JSON.stringify({ type: 'complete', result })}\n\n`);
-            client.end();
-          } catch { /* ignore */ }
+    )
+      .then((result) => {
+        const listeners = activeStreams.get(session.sessionId);
+        if (listeners) {
+          for (const client of listeners) {
+            try {
+              client.write(`data: ${JSON.stringify({ type: 'complete', result })}\n\n`);
+              client.end();
+            } catch {
+              /* ignore */
+            }
+          }
+          activeStreams.delete(session.sessionId);
         }
-        activeStreams.delete(String(session._id));
-      }
-    }).catch((err) => {
-      const listeners = activeStreams.get(String(session._id));
-      if (listeners) {
-        for (const client of listeners) {
-          try {
-            client.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
-            client.end();
-          } catch { /* ignore */ }
+      })
+      .catch((err) => {
+        const listeners = activeStreams.get(session.sessionId);
+        if (listeners) {
+          for (const client of listeners) {
+            try {
+              client.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+              client.end();
+            } catch {
+              /* ignore */
+            }
+          }
+          activeStreams.delete(session.sessionId);
         }
-        activeStreams.delete(String(session._id));
-      }
-    });
+      });
 
     res.status(201).json({
-      analysisId: session._id,
+      analysisId: session.sessionId,
       status: 'pending',
     });
   } catch (err) {
@@ -75,7 +88,7 @@ router.post('/start', async (req: Request, res: Response) => {
 });
 
 router.get('/stream/:id', (req: Request, res: Response) => {
-  const id = req.params.id;
+  const id = req.params.id.trim();
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -90,7 +103,7 @@ router.get('/stream/:id', (req: Request, res: Response) => {
 
   const orgId = req.user?.tenantId ?? 'default';
 
-  AnalysisSession.findOne({ _id: id, organizationId: orgId }).then((session) => {
+  getAnalysisSession(orgId, id).then((session) => {
     if (session) {
       if (session.status === 'completed' && session.result) {
         res.write(`data: ${JSON.stringify({ type: 'complete', result: session.result })}\n\n`);
@@ -104,7 +117,9 @@ router.get('/stream/:id', (req: Request, res: Response) => {
         }
       }
     }
-  }).catch(() => { /* ignore */ });
+  }).catch(() => {
+    /* ignore */
+  });
 
   req.on('close', () => {
     activeStreams.get(id)?.delete(res);
@@ -116,18 +131,18 @@ router.get('/stream/:id', (req: Request, res: Response) => {
 
 router.get('/result/:id', async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id.trim();
     if (!isValidSessionId(id)) {
       return res.status(400).json({ message: 'Invalid session id' });
     }
     const orgId = req.user?.tenantId ?? 'default';
-    const session = await AnalysisSession.findOne({ _id: id, organizationId: orgId }).lean();
+    const session = await getAnalysisSession(orgId, id);
     if (!session) {
       return res.status(404).json({ message: 'Analysis session not found' });
     }
 
     res.json({
-      id: session._id,
+      id: session.sessionId,
       query: session.query,
       status: session.status,
       steps: session.steps,
@@ -146,13 +161,15 @@ router.get('/result/:id', async (req: Request, res: Response) => {
 router.get('/sessions', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
-    const sessions = await AnalysisSession.find({ organizationId: orgId })
-      .sort({ startedAt: -1 })
-      .limit(20)
-      .select('query status startedAt completedAt')
-      .lean();
+    const sessions = await listAnalysisSessionsByOrg(orgId, 20);
 
-    res.json(sessions);
+    res.json(sessions.map((s) => ({
+      sessionId: s.sessionId,
+      query: s.query,
+      status: s.status,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt,
+    })));
   } catch (err) {
     console.error('Sessions list error:', err);
     res.status(500).json({ message: 'Failed to list sessions' });
@@ -162,7 +179,7 @@ router.get('/sessions', async (req: Request, res: Response) => {
 router.patch('/sessions/:id', async (req: Request, res: Response) => {
   try {
     const { title } = req.body;
-    const id = req.params.id;
+    const id = req.params.id.trim();
     if (!isValidSessionId(id)) {
       return res.status(400).json({ message: 'Invalid session id' });
     }
@@ -170,13 +187,10 @@ router.patch('/sessions/:id', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Title is required' });
     }
     const orgId = req.user?.tenantId ?? 'default';
-    const session = await AnalysisSession.findOneAndUpdate(
-      { _id: id, organizationId: orgId },
-      { query: title },
-      { new: true }
-    );
+    const session = await getAnalysisSession(orgId, id);
     if (!session) return res.status(404).json({ message: 'Session not found' });
-    res.json(session);
+    await updateAnalysisSession(orgId, id, { query: title });
+    res.json({ ...session, query: title });
   } catch (err) {
     console.error('Rename session error:', err);
     res.status(500).json({ message: 'Failed to rename session' });
@@ -185,13 +199,14 @@ router.patch('/sessions/:id', async (req: Request, res: Response) => {
 
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id.trim();
     if (!isValidSessionId(id)) {
       return res.status(400).json({ message: 'Invalid session id' });
     }
     const orgId = req.user?.tenantId ?? 'default';
-    const session = await AnalysisSession.findOneAndDelete({ _id: id, organizationId: orgId });
+    const session = await getAnalysisSession(orgId, id);
     if (!session) return res.status(404).json({ message: 'Session not found' });
+    await deleteAnalysisSession(orgId, id);
     res.json({ message: 'Session deleted successfully' });
   } catch (err) {
     console.error('Delete session error:', err);

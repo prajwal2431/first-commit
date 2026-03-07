@@ -1,6 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import fs from 'fs';
-import { TrafficRecord } from '../models/TrafficRecord';
+import { batchPutTraffic } from '../db/trafficRecordRepo';
 
 const MAX_ROWS = 10000;
 
@@ -63,8 +63,6 @@ export async function parseTrafficCsv(
     if (isNaN(d.getTime())) continue;
 
     toInsert.push({
-      sourceId,
-      organizationId,
       date: d,
       channel: obj.channel ?? '',
       sku: obj.sku ?? '',
@@ -76,7 +74,7 @@ export async function parseTrafficCsv(
   }
 
   if (toInsert.length > 0) {
-    await TrafficRecord.insertMany(toInsert);
+    await batchPutTraffic(organizationId, sourceId, toInsert as Parameters<typeof batchPutTraffic>[2]);
   }
   return { inserted: toInsert.length };
 }

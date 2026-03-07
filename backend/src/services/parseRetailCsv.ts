@@ -3,7 +3,7 @@ import fs from 'fs';
 import { buildColumnMap, normalizeRow } from '../utils/columnNormalizer';
 import { validateRetailRow } from '../utils/retailValidation';
 import type { ParsedRetailRow } from '../utils/retailValidation';
-import { RetailRecord } from '../models/RetailRecord';
+import { batchPutRetail } from '../db/retailRecordRepo';
 
 const MAX_ROWS = 10000; // cap for prototype (covers 30–60+ days by SKU)
 
@@ -90,8 +90,7 @@ export async function parseRetailCsv(
 
   let inserted = 0;
   if (toInsert.length > 0) {
-    await RetailRecord.insertMany(toInsert);
-    inserted = toInsert.length;
+    inserted = await batchPutRetail(organizationId, sourceId, toInsert);
   }
 
   const summary: RetailCsvSummary = {

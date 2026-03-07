@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
-import { OrgSettings, SmtpConfig } from '../models/OrgSettings';
+import type { SmtpConfig } from '../models/OrgSettings';
+import { getOrgSettings } from '../db/orgSettingsRepo';
 
 interface SendEmailOptions {
     to: string;
@@ -8,7 +9,7 @@ interface SendEmailOptions {
 }
 
 async function getTransporter(organizationId: string) {
-    const settings = await OrgSettings.findOne({ organizationId }).lean();
+    const settings = await getOrgSettings(organizationId);
     const smtp = settings?.smtp;
 
     if (smtp && smtp.host && smtp.user && smtp.pass) {

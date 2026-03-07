@@ -1,8 +1,8 @@
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { WeatherRecord } from '../../models/WeatherRecord';
-import { LiveSignal } from '../../models/DashboardState';
-import { SignalThresholds } from '../../models/OrgSettings';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import { listWeatherByOrg } from '../../db/weatherRecordRepo';
+import type { LiveSignal } from '../../models/DashboardState';
+import type { SignalThresholds } from '../../models/OrgSettings';
 import festivalCalendar from '../../data/festival_calendar.json';
 import crypto from 'crypto';
 
@@ -34,13 +34,8 @@ export async function computeDemandSpikes(
 ): Promise<DemandSpikesResult> {
   const signals: LiveSignal[] = [];
 
-  const retailData = await RetailRecord.find({ organizationId })
-    .sort({ date: 1 })
-    .lean();
-
-  const orderData = await OrderRecord.find({ organizationId })
-    .sort({ date: 1 })
-    .lean();
+  const retailData = await listRetailByOrg(organizationId);
+  const orderData = await listOrdersByOrg(organizationId);
 
   if (retailData.length === 0 && orderData.length === 0) {
     return { signals };
@@ -51,7 +46,7 @@ export async function computeDemandSpikes(
   const skuDailyUnits = new Map<string, Map<string, number>>();
 
   for (const r of retailData) {
-    const key = new Date(r.date).toISOString().slice(0, 10);
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
     dailyUnits.set(key, (dailyUnits.get(key) ?? 0) + r.units);
     dailyRevenue.set(key, (dailyRevenue.get(key) ?? 0) + r.revenue);
 
@@ -61,7 +56,7 @@ export async function computeDemandSpikes(
   }
 
   for (const o of orderData) {
-    const key = new Date(o.date).toISOString().slice(0, 10);
+    const key = typeof o.date === 'string' ? o.date.slice(0, 10) : new Date(o.date).toISOString().slice(0, 10);
     dailyUnits.set(key, (dailyUnits.get(key) ?? 0) + o.quantity);
     dailyRevenue.set(key, (dailyRevenue.get(key) ?? 0) + o.revenue);
 
@@ -82,10 +77,10 @@ export async function computeDemandSpikes(
   // Use configurable threshold multiplier
   const threshold = mean + thresholds.demandSpikeStdDevMultiplier * stddev;
 
-  const weatherData = await WeatherRecord.find({ organizationId }).lean();
-  const weatherByDate = new Map<string, any[]>();
+  const weatherData = await listWeatherByOrg(organizationId);
+  const weatherByDate = new Map<string, Array<{ date: string; region: string; temp_max: number; rainfall_mm: number }>>();
   for (const w of weatherData) {
-    const key = new Date(w.date).toISOString().slice(0, 10);
+    const key = typeof w.date === 'string' ? w.date.slice(0, 10) : new Date(w.date).toISOString().slice(0, 10);
     if (!weatherByDate.has(key)) weatherByDate.set(key, []);
     weatherByDate.get(key)!.push(w);
   }
@@ -154,7 +149,7 @@ export async function computeDemandSpikes(
       description: `${units} units vs ${mean.toFixed(0)} avg. Classification: ${classification}${context ? '. ' + context : ''}`,
       suggestedQuery: `What is driving the demand spike on ${date}?`,
       evidenceSnippet: `Units: ${units} (avg: ${mean.toFixed(0)}, threshold: ${threshold.toFixed(0)}). Type: ${classification}`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         revenueAtRisk: dayRevenue > 0 ? Math.round(dayRevenue * 0.2) : undefined, // 20% at risk if can't fulfill
         unitsAtRisk: units - Math.round(mean),
@@ -182,7 +177,7 @@ export async function computeDemandSpikes(
         description: `${lastDay[1]} units on ${lastDay[0]} vs avg ${skuMean.toFixed(0)}`,
         suggestedQuery: `Why is demand spiking for ${sku}?`,
         evidenceSnippet: `SKU ${sku}: ${lastDay[1]} units (avg: ${skuMean.toFixed(0)})`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           unitsAtRisk: lastDay[1] - Math.round(skuMean),
           confidence: 70,

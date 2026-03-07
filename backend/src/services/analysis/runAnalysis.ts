@@ -1,10 +1,11 @@
-import { AnalysisSession, AnalysisResultData, AnalysisStep } from '../../models/AnalysisSession';
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { TrafficRecord } from '../../models/TrafficRecord';
-import { WeatherRecord } from '../../models/WeatherRecord';
+import type { AnalysisResultData, AnalysisStep } from '../../models/AnalysisSession';
+import { getAnalysisSession, updateAnalysisSession } from '../../db/analysisSessionRepo';
+import { countRetailByOrg, listRetailByOrg } from '../../db/retailRecordRepo';
+import { countOrdersByOrg } from '../../db/orderRepo';
+import { countInventoryByOrg } from '../../db/inventoryRepo';
+import { countFulfilmentByOrg } from '../../db/fulfilmentRecordRepo';
+import { countTrafficByOrg } from '../../db/trafficRecordRepo';
+import { countWeatherByOrg } from '../../db/weatherRecordRepo';
 import { detectAnomalies } from './anomalyDetector';
 import { getApplicableHypotheses } from './hypothesisLibrary';
 import { testHypotheses } from './hypothesisTester';
@@ -19,32 +20,33 @@ export async function runFullAnalysis(
   organizationId: string,
   onProgress?: ProgressCallback
 ): Promise<AnalysisResultData> {
-  const session = await AnalysisSession.findById(sessionId);
+  const session = await getAnalysisSession(organizationId, sessionId);
   if (!session) throw new Error('Analysis session not found');
 
-  session.status = 'running';
-  session.steps = [
+  const steps: AnalysisStep[] = [
     { stage: 1, label: 'Querying data sources', status: 'pending' },
     { stage: 2, label: 'Detecting anomalies & analyzing signals', status: 'pending' },
     { stage: 3, label: 'Testing hypotheses & correlating evidence', status: 'pending' },
     { stage: 4, label: 'Generating action plan & memo', status: 'pending' },
   ];
-  await session.save();
+  await updateAnalysisSession(organizationId, sessionId, { status: 'running', steps });
+
+  const sessionRef = { ...session, steps, status: 'running' as const };
 
   try {
-    updateStep(session, 0, 'running', onProgress);
-    await session.save();
+    updateStep(sessionRef, 0, 'running', onProgress);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
-    const availableData = new Set<string>();
     const [retailCount, orderCount, invCount, fulCount, trafficCount, weatherCount] = await Promise.all([
-      RetailRecord.countDocuments({ organizationId }),
-      OrderRecord.countDocuments({ organizationId }),
-      InventoryRecord.countDocuments({ organizationId }),
-      FulfilmentRecord.countDocuments({ organizationId }),
-      TrafficRecord.countDocuments({ organizationId }),
-      WeatherRecord.countDocuments({ organizationId }),
+      countRetailByOrg(organizationId),
+      countOrdersByOrg(organizationId),
+      countInventoryByOrg(organizationId),
+      countFulfilmentByOrg(organizationId),
+      countTrafficByOrg(organizationId),
+      countWeatherByOrg(organizationId),
     ]);
 
+    const availableData = new Set<string>();
     if (retailCount > 0) availableData.add('retail');
     if (orderCount > 0) availableData.add('orders');
     if (invCount > 0) availableData.add('inventory');
@@ -53,48 +55,49 @@ export async function runFullAnalysis(
     if (weatherCount > 0) availableData.add('weather');
 
     const detail = `Found: ${Array.from(availableData).join(', ')} (${retailCount + orderCount + invCount + fulCount + trafficCount + weatherCount} total records)`;
-    updateStep(session, 0, 'completed', onProgress, detail);
-    await session.save();
+    updateStep(sessionRef, 0, 'completed', onProgress, detail);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
-    updateStep(session, 1, 'running', onProgress);
-    await session.save();
+    updateStep(sessionRef, 1, 'running', onProgress);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
     const anomalies = await detectAnomalies(organizationId);
-    updateStep(session, 1, 'completed', onProgress, `${anomalies.length} anomalies detected`);
-    await session.save();
+    updateStep(sessionRef, 1, 'completed', onProgress, `${anomalies.length} anomalies detected`);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
-    updateStep(session, 2, 'running', onProgress);
-    await session.save();
+    updateStep(sessionRef, 2, 'running', onProgress);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
     const applicableHypotheses = getApplicableHypotheses(anomalies, availableData);
     const testedHypotheses = await testHypotheses(organizationId, applicableHypotheses, anomalies);
     const confirmedCount = testedHypotheses.filter((h) => h.status === 'confirmed').length;
-    updateStep(session, 2, 'completed', onProgress,
+    updateStep(sessionRef, 2, 'completed', onProgress,
       `Tested ${applicableHypotheses.length} hypotheses, ${confirmedCount} confirmed`);
-    await session.save();
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
-    updateStep(session, 3, 'running', onProgress);
-    await session.save();
+    updateStep(sessionRef, 3, 'running', onProgress);
+    await updateAnalysisSession(organizationId, sessionId, { steps: sessionRef.steps });
 
     const rootCauses = rankRootCauses(testedHypotheses);
     const businessImpact = computeBusinessImpact(rootCauses, testedHypotheses);
     const geoOpportunity = computeGeoOpportunity(testedHypotheses);
     const actions = generateActions(rootCauses, testedHypotheses);
 
-    const revSeries = await RetailRecord.aggregate([
-      { $match: { organizationId } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-          revenue: { $sum: '$revenue' },
-          traffic: { $sum: '$traffic' },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    const retailData = await listRetailByOrg(organizationId);
+    const dailyMap = new Map<string, { revenue: number; traffic: number }>();
+    for (const r of retailData) {
+      const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+      const ex = dailyMap.get(key) ?? { revenue: 0, traffic: 0 };
+      ex.revenue += r.revenue;
+      ex.traffic += r.traffic;
+      dailyMap.set(key, ex);
+    }
+    const revSeries = Array.from(dailyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([_id, d]) => ({ _id, revenue: d.revenue, traffic: d.traffic }));
 
     const charts: AnalysisResultData['charts'] = {
-      revenueVsTraffic: revSeries.map((d: any) => ({
+      revenueVsTraffic: revSeries.map((d) => ({
         date: d._id,
         revenue: d.revenue,
         traffic: d.traffic,
@@ -117,25 +120,28 @@ export async function runFullAnalysis(
       memoMarkdown,
     };
 
-    updateStep(session, 3, 'completed', onProgress,
+    updateStep(sessionRef, 3, 'completed', onProgress,
       `${rootCauses.length} root causes, ${actions.length} actions generated`);
 
-    session.status = 'completed';
-    session.result = result;
-    session.completedAt = new Date();
-    await session.save();
+    await updateAnalysisSession(organizationId, sessionId, {
+      status: 'completed',
+      steps: sessionRef.steps,
+      result,
+      completedAt: new Date().toISOString(),
+    });
 
     return result;
   } catch (err) {
-    session.status = 'failed';
-    session.errorMessage = err instanceof Error ? err.message : 'Analysis failed';
-    await session.save();
+    await updateAnalysisSession(organizationId, sessionId, {
+      status: 'failed',
+      errorMessage: err instanceof Error ? err.message : 'Analysis failed',
+    });
     throw err;
   }
 }
 
 function updateStep(
-  session: any,
+  session: { steps: AnalysisStep[] },
   index: number,
   status: AnalysisStep['status'],
   onProgress?: ProgressCallback,
@@ -143,9 +149,8 @@ function updateStep(
 ): void {
   if (!session.steps[index]) return;
   session.steps[index].status = status;
-  if (status === 'running') session.steps[index].startedAt = new Date();
-  if (status === 'completed') session.steps[index].completedAt = new Date();
+  if (status === 'running') session.steps[index].startedAt = new Date().toISOString();
+  if (status === 'completed') session.steps[index].completedAt = new Date().toISOString();
   if (detail) session.steps[index].detail = detail;
-  session.markModified('steps');
   if (onProgress) onProgress(session.steps[index]);
 }

@@ -2,8 +2,10 @@ import { computeRevenueAtRisk } from './revenueAtRisk';
 import { computeInventoryExposure } from './inventoryExposure';
 import { computeOperationalBreakdowns } from './operationalBreakdowns';
 import { computeDemandSpikes } from './demandSpikes';
-import { DashboardState, LiveSignal, KpiSummary, RevenueSeriesPoint } from '../../models/DashboardState';
-import { OrgSettings, DEFAULT_THRESHOLDS, SignalThresholds } from '../../models/OrgSettings';
+import { getOrgSettings } from '../../db/orgSettingsRepo';
+import { getDashboardState, putDashboardState } from '../../db/dashboardStateRepo';
+import type { LiveSignal, KpiSummary } from '../../models/DashboardState';
+import { DEFAULT_THRESHOLDS, type SignalThresholds } from '../../models/OrgSettings';
 
 function generateLogicalAIPrediction(kpiSummary: any, liveSignals: any[]): string {
   // Temporary mock for real AI model predictions using actual backend logic
@@ -25,17 +27,16 @@ export async function computeAllMonitors(organizationId: string): Promise<void> 
   console.log(`[monitors] Recomputing all monitors for org=${organizationId}`);
   const start = Date.now();
 
-  // Load org-specific thresholds (fall back to defaults)
   let thresholds: SignalThresholds = { ...DEFAULT_THRESHOLDS };
   try {
-    const settings = await OrgSettings.findOne({ organizationId }).lean();
+    const settings = await getOrgSettings(organizationId);
     if (settings?.thresholds) {
       thresholds = {
         ...DEFAULT_THRESHOLDS,
         ...settings.thresholds,
         trafficUpCvrDown: {
           ...DEFAULT_THRESHOLDS.trafficUpCvrDown,
-          ...(settings.thresholds as any).trafficUpCvrDown,
+          ...(settings.thresholds as SignalThresholds).trafficUpCvrDown,
         },
       };
     }
@@ -77,17 +78,16 @@ export async function computeAllMonitors(organizationId: string): Promise<void> 
 
   kpiSummary.aiPrediction = generateLogicalAIPrediction(kpiSummary, liveSignals);
 
-  await DashboardState.findOneAndUpdate(
-    { organizationId },
-    {
-      organizationId,
-      revenueAtRiskSeries: revenue.series,
-      liveSignals,
-      kpiSummary,
-      lastComputedAt: new Date(),
-    },
-    { upsert: true, new: true }
-  );
+  const existing = await getDashboardState(organizationId);
+  await putDashboardState({
+    organizationId,
+    sk: 'STATE',
+    revenueAtRiskSeries: revenue.series,
+    liveSignals,
+    kpiSummary,
+    lastComputedAt: new Date().toISOString(),
+    resolvedSignalIds: existing?.resolvedSignalIds ?? [],
+  });
 
   console.log(`[monitors] Recompute done in ${Date.now() - start}ms, ${liveSignals.length} signals`);
 }

@@ -1,7 +1,7 @@
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { Anomaly } from '../../models/Anomaly';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import { listInventoryByOrg } from '../../db/inventoryRepo';
+import { createAnomaly } from '../../db/anomalyRepo';
 
 export interface DetectedAnomaly {
   kpiName: string;
@@ -28,9 +28,10 @@ export async function detectAnomalies(organizationId: string): Promise<DetectedA
   anomalies.push(...conversionAnomalies);
 
   for (const a of anomalies) {
-    await Anomaly.create({
+    await createAnomaly({
       organizationId,
       kpiName: a.kpiName,
+      detectedAt: new Date().toISOString(),
       severity: a.severity,
       currentValue: a.currentValue,
       expectedValue: a.expectedValue,
@@ -46,41 +47,28 @@ export async function detectAnomalies(organizationId: string): Promise<DetectedA
 async function detectRevenueAnomalies(organizationId: string): Promise<DetectedAnomaly[]> {
   const anomalies: DetectedAnomaly[] = [];
 
-  const dailyRevenue = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        revenue: { $sum: '$revenue' },
-        units: { $sum: '$units' },
-      },
-    },
-    { $sort: { _id: 1 } },
+  const [retailData, orderData] = await Promise.all([
+    listRetailByOrg(organizationId),
+    listOrdersByOrg(organizationId),
   ]);
 
-  const orderDailyRevenue = await OrderRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        revenue: { $sum: '$revenue' },
-        units: { $sum: '$quantity' },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
-
-  const combined = new Map<string, { revenue: number; units: number }>();
-  for (const d of dailyRevenue) {
-    combined.set(d._id, { revenue: d.revenue, units: d.units });
+  const dailyRevenue = new Map<string, { revenue: number; units: number }>();
+  for (const r of retailData) {
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    const ex = dailyRevenue.get(key) ?? { revenue: 0, units: 0 };
+    ex.revenue += r.revenue;
+    ex.units += r.units;
+    dailyRevenue.set(key, ex);
   }
-  for (const d of orderDailyRevenue) {
-    const existing = combined.get(d._id) ?? { revenue: 0, units: 0 };
-    existing.revenue += d.revenue;
-    existing.units += d.units;
-    combined.set(d._id, existing);
+  for (const o of orderData) {
+    const key = typeof o.date === 'string' ? o.date.slice(0, 10) : new Date(o.date).toISOString().slice(0, 10);
+    const ex = dailyRevenue.get(key) ?? { revenue: 0, units: 0 };
+    ex.revenue += o.revenue;
+    ex.units += o.quantity;
+    dailyRevenue.set(key, ex);
   }
 
+  const combined = dailyRevenue;
   const sorted = Array.from(combined.entries()).sort(([a], [b]) => a.localeCompare(b));
   if (sorted.length < 8) return anomalies;
 
@@ -121,30 +109,17 @@ async function detectRevenueAnomalies(organizationId: string): Promise<DetectedA
     }
   }
 
-  const skuRevenue = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: {
-          sku: '$sku',
-          week: {
-            $cond: [
-              { $gte: ['$date', new Date(sorted[sorted.length - 7]?.[0] ?? '')] },
-              'recent',
-              'prior',
-            ],
-          },
-        },
-        revenue: { $sum: '$revenue' },
-      },
-    },
-  ]);
-
+  const recentStart = sorted[sorted.length - 7]?.[0] ?? '';
   const skuRecent = new Map<string, number>();
   const skuPrior = new Map<string, number>();
-  for (const s of skuRevenue) {
-    if (s._id.week === 'recent') skuRecent.set(s._id.sku, s.revenue);
-    else skuPrior.set(s._id.sku, s.revenue);
+  for (const r of retailData) {
+    const dateStr = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    const week = dateStr >= recentStart ? 'recent' : 'prior';
+    if (week === 'recent') {
+      skuRecent.set(r.sku, (skuRecent.get(r.sku) ?? 0) + r.revenue);
+    } else {
+      skuPrior.set(r.sku, (skuPrior.get(r.sku) ?? 0) + r.revenue);
+    }
   }
 
   for (const [sku, recentVal] of skuRecent) {
@@ -169,42 +144,46 @@ async function detectRevenueAnomalies(organizationId: string): Promise<DetectedA
 async function detectStockoutAnomalies(organizationId: string): Promise<DetectedAnomaly[]> {
   const anomalies: DetectedAnomaly[] = [];
 
-  const latestInventory = await InventoryRecord.aggregate([
-    { $match: { organizationId } },
-    { $sort: { date: -1 } },
-    {
-      $group: {
-        _id: { sku: '$sku', location: '$location' },
-        available_qty: { $first: '$available_qty' },
-        date: { $first: '$date' },
-      },
-    },
-  ]);
+  const inventoryData = await listInventoryByOrg(organizationId);
+  const bySkuLoc = new Map<string, { sku: string; location: string; available_qty: number }>();
+  for (const r of inventoryData) {
+    const key = `${r.sku}|${r.location}`;
+    if (!bySkuLoc.has(key)) {
+      bySkuLoc.set(key, { sku: r.sku, location: r.location, available_qty: r.available_qty });
+    }
+  }
+  const latestInventory = Array.from(bySkuLoc.values());
 
-  const retailDemand = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: '$sku',
-        avgUnits: { $avg: '$units' },
-        totalRevenue: { $sum: '$revenue' },
-      },
-    },
-    { $sort: { totalRevenue: -1 } },
-    { $limit: 50 },
-  ]);
+  const retailData = await listRetailByOrg(organizationId);
+  const bySku = new Map<string, { sumUnits: number; totalRevenue: number; count: number }>();
+  for (const r of retailData) {
+    const ex = bySku.get(r.sku) ?? { sumUnits: 0, totalRevenue: 0, count: 0 };
+    ex.sumUnits += r.units;
+    ex.totalRevenue += r.revenue;
+    ex.count += 1;
+    bySku.set(r.sku, ex);
+  }
+  const retailDemand = Array.from(bySku.entries())
+    .map(([_id, d]) => ({
+      _id,
+      avgUnits: d.count > 0 ? d.sumUnits / d.count : 0,
+      totalRevenue: d.totalRevenue,
+    }))
+    .sort((a, b) => b.totalRevenue - a.totalRevenue)
+    .slice(0, 50);
 
-  const highDemandSkus = new Set(retailDemand.map((r: any) => r._id));
+  const highDemandSkus = new Set(retailDemand.map((r) => r._id));
 
   for (const inv of latestInventory) {
-    if (inv.available_qty <= 0 && highDemandSkus.has(inv._id.sku)) {
+    if (inv.available_qty <= 0 && highDemandSkus.has(inv.sku)) {
+      const skuData = retailDemand.find((r) => r._id === inv.sku);
       anomalies.push({
         kpiName: 'stockout',
         severity: 'critical',
         currentValue: 0,
-        expectedValue: retailDemand.find((r: any) => r._id === inv._id.sku)?.avgUnits ?? 10,
+        expectedValue: skuData?.avgUnits ?? 10,
         deviationPercent: -100,
-        dimensions: { sku: inv._id.sku, location: inv._id.location },
+        dimensions: { sku: inv.sku, location: inv.location },
       });
     }
   }
@@ -215,28 +194,29 @@ async function detectStockoutAnomalies(organizationId: string): Promise<Detected
 async function detectConversionAnomalies(organizationId: string): Promise<DetectedAnomaly[]> {
   const anomalies: DetectedAnomaly[] = [];
 
-  const dailyData = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    {
-      $group: {
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
-        units: { $sum: '$units' },
-        traffic: { $sum: '$traffic' },
-        revenue: { $sum: '$revenue' },
-      },
-    },
-    { $sort: { _id: 1 } },
-  ]);
+  const retailData = await listRetailByOrg(organizationId);
+  const dailyDataMap = new Map<string, { units: number; traffic: number; revenue: number }>();
+  for (const r of retailData) {
+    const key = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    const ex = dailyDataMap.get(key) ?? { units: 0, traffic: 0, revenue: 0 };
+    ex.units += r.units;
+    ex.traffic += r.traffic;
+    ex.revenue += r.revenue;
+    dailyDataMap.set(key, ex);
+  }
+  const dailyData = Array.from(dailyDataMap.entries())
+    .map(([_id, d]) => ({ _id, units: d.units, traffic: d.traffic, revenue: d.revenue }))
+    .sort((a, b) => a._id.localeCompare(b._id));
 
   if (dailyData.length < 7) return anomalies;
 
   const recent = dailyData.slice(-7);
   const prior = dailyData.slice(-14, -7);
 
-  const recentTraffic = recent.reduce((s: number, d: any) => s + d.traffic, 0);
-  const priorTraffic = prior.reduce((s: number, d: any) => s + d.traffic, 0);
-  const recentUnits = recent.reduce((s: number, d: any) => s + d.units, 0);
-  const priorUnits = prior.reduce((s: number, d: any) => s + d.units, 0);
+  const recentTraffic = recent.reduce((s, d) => s + d.traffic, 0);
+  const priorTraffic = prior.reduce((s, d) => s + d.traffic, 0);
+  const recentUnits = recent.reduce((s, d) => s + d.units, 0);
+  const priorUnits = prior.reduce((s, d) => s + d.units, 0);
 
   if (recentTraffic === 0 || priorTraffic === 0) return anomalies;
 

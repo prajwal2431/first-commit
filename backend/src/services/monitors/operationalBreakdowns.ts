@@ -1,7 +1,7 @@
-import { FulfilmentRecord } from '../../models/FulfilmentRecord';
-import { RetailRecord } from '../../models/RetailRecord';
-import { LiveSignal } from '../../models/DashboardState';
-import { SignalThresholds } from '../../models/OrgSettings';
+import { listFulfilmentByOrg } from '../../db/fulfilmentRecordRepo';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import type { LiveSignal } from '../../models/DashboardState';
+import type { SignalThresholds } from '../../models/OrgSettings';
 import crypto from 'crypto';
 
 interface OpsKpis {
@@ -20,9 +20,7 @@ export async function computeOperationalBreakdowns(
   organizationId: string,
   thresholds: SignalThresholds
 ): Promise<OperationalBreakdownsResult> {
-  const fulfilmentData = await FulfilmentRecord.find({ organizationId })
-    .sort({ dispatch_date: -1 })
-    .lean();
+  const fulfilmentData = await listFulfilmentByOrg(organizationId);
 
   if (fulfilmentData.length === 0) {
     return computeFromRetailReturns(organizationId, thresholds);
@@ -44,7 +42,7 @@ export async function computeOperationalBreakdowns(
     ? ((totalShipments - delayed.length) / totalShipments) * 100
     : 100;
 
-  const latestDate = fulfilmentData.length > 0 ? new Date(fulfilmentData[0].dispatch_date) : new Date();
+  const latestDate = fulfilmentData.length > 0 ? new Date(fulfilmentData[0].dispatch_date as string) : new Date();
   const midpoint = new Date(latestDate.getTime() - 7 * 86400000);
   const recentData = fulfilmentData.filter((r) => new Date(r.dispatch_date) >= midpoint);
   const priorData = fulfilmentData.filter((r) => new Date(r.dispatch_date) < midpoint);
@@ -86,7 +84,7 @@ export async function computeOperationalBreakdowns(
         : `${returned.length} total returns detected`,
       suggestedQuery: 'What is causing the high return rate?',
       evidenceSnippet: `Return rate: ${returnRate.toFixed(1)}% (${returned.length}/${totalShipments})`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         marginAtRisk,
         ordersAtRisk: returned.length,
@@ -106,7 +104,7 @@ export async function computeOperationalBreakdowns(
       description: `${delayed.length} shipments exceeded expected delivery time`,
       suggestedQuery: 'Which carriers or regions are causing delivery delays?',
       evidenceSnippet: `SLA adherence at ${slaAdherence.toFixed(1)}%, ${delayed.length} delayed shipments`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         ordersAtRisk: delayed.length,
         confidence: computeOpsConfidence(totalShipments, true),
@@ -129,7 +127,7 @@ export async function computeOperationalBreakdowns(
       description: `${cancelled.length} orders cancelled`,
       suggestedQuery: 'Why are cancellations increasing?',
       evidenceSnippet: `Cancel rate: ${cancelRate.toFixed(1)}% (${cancelled.length}/${totalShipments})`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         ordersAtRisk: cancelled.length,
         confidence: computeOpsConfidence(totalShipments, false),
@@ -165,7 +163,7 @@ export async function computeOperationalBreakdowns(
       description: `${rtoOnly.length} orders returned to origin${worstRegion ? `. Worst: ${worstRegion.region} (${worstRegion.rtoRate.toFixed(0)}%)` : ''}`,
       suggestedQuery: 'What is driving the high RTO rate?',
       evidenceSnippet: `RTO rate: ${rtoRate.toFixed(1)}% (${rtoOnly.length}/${totalShipments})`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         ordersAtRisk: rtoOnly.length,
         marginAtRisk: Math.round(rtoOnly.length * 300), // avg RTO cost
@@ -197,9 +195,7 @@ async function computeFromRetailReturns(
 ): Promise<OperationalBreakdownsResult> {
   const signals: LiveSignal[] = [];
 
-  const retailData = await RetailRecord.find({ organizationId })
-    .sort({ date: -1 })
-    .lean();
+  const retailData = await listRetailByOrg(organizationId);
 
   if (retailData.length === 0) {
     return { signals, kpis: { returnRate: 0, returnDelta: 0, slaAdherence: 100, slaDelta: 0 } };
@@ -218,7 +214,7 @@ async function computeFromRetailReturns(
       description: `${totalReturns} returns out of ${totalUnits} units sold`,
       suggestedQuery: 'What is driving the return rate?',
       evidenceSnippet: `Overall return rate: ${returnRate.toFixed(1)}%`,
-      detectedAt: new Date(),
+      detectedAt: new Date().toISOString(),
       impact: {
         ordersAtRisk: totalReturns,
         confidence: 65,

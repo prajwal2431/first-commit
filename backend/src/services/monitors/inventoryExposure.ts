@@ -1,8 +1,8 @@
-import { InventoryRecord } from '../../models/InventoryRecord';
-import { RetailRecord } from '../../models/RetailRecord';
-import { OrderRecord } from '../../models/OrderRecord';
-import { LiveSignal } from '../../models/DashboardState';
-import { SignalThresholds } from '../../models/OrgSettings';
+import { listInventoryByOrg } from '../../db/inventoryRepo';
+import { listRetailByOrg } from '../../db/retailRecordRepo';
+import { listOrdersByOrg } from '../../db/orderRepo';
+import type { LiveSignal } from '../../models/DashboardState';
+import type { SignalThresholds } from '../../models/OrgSettings';
 import crypto from 'crypto';
 
 interface InventoryKpis {
@@ -19,20 +19,15 @@ export async function computeInventoryExposure(
   organizationId: string,
   thresholds: SignalThresholds
 ): Promise<InventoryExposureResult> {
-  const inventoryData = await InventoryRecord.find({ organizationId })
-    .sort({ date: -1 })
-    .lean();
+  const inventoryData = await listInventoryByOrg(organizationId);
 
   if (inventoryData.length === 0) {
-    const retailInv = await RetailRecord.find({ organizationId, inventory: { $exists: true } })
-      .sort({ date: -1 })
-      .lean();
-
-    if (retailInv.length === 0) {
+    const retailInv = await listRetailByOrg(organizationId);
+    const withInventory = retailInv.filter((r) => r.inventory != null);
+    if (withInventory.length === 0) {
       return { signals: [], kpis: { oosRate: 0, oosDelta: 0 } };
     }
-
-    return computeFromRetailRecords(organizationId, retailInv, thresholds);
+    return computeFromRetailRecords(organizationId, withInventory, thresholds);
   }
 
   return computeFromInventoryRecords(organizationId, inventoryData, thresholds);
@@ -45,17 +40,20 @@ async function computeFromInventoryRecords(
 ): Promise<InventoryExposureResult> {
   const signals: LiveSignal[] = [];
 
-  const latestDate = new Date(inventoryData[0].date);
-  const latestDateStr = latestDate.toISOString().slice(0, 10);
+  const latestDateStr = typeof inventoryData[0].date === 'string'
+    ? inventoryData[0].date.slice(0, 10)
+    : new Date(inventoryData[0].date).toISOString().slice(0, 10);
 
-  const latestInventory = inventoryData.filter(
-    (r) => new Date(r.date).toISOString().slice(0, 10) === latestDateStr
-  );
+  const latestInventory = inventoryData.filter((r) => {
+    const d = typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10);
+    return d === latestDateStr;
+  });
 
   const totalSkus = new Set(latestInventory.map((r: any) => r.sku)).size;
   const oosSkus = latestInventory.filter((r: any) => r.available_qty <= 0);
   const oosRate = totalSkus > 0 ? (new Set(oosSkus.map((r: any) => r.sku)).size / totalSkus) * 100 : 0;
 
+  const latestDate = new Date(latestDateStr);
   const weekAgo = new Date(latestDate.getTime() - 7 * 86400000);
   const priorInventory = inventoryData.filter((r) => {
     const d = new Date(r.date);
@@ -81,7 +79,7 @@ async function computeFromInventoryRecords(
           description: `High-demand SKU ${oos.sku} is out of stock at ${oos.location}`,
           suggestedQuery: `Why is ${oos.sku} out of stock in ${oos.location}?`,
           evidenceSnippet: `SKU ${oos.sku}: 0 units at ${oos.location}, active demand detected`,
-          detectedAt: new Date(),
+          detectedAt: new Date().toISOString(),
           impact: {
             revenueAtRisk: demandInfo?.estimatedDailyRev ? Math.round(demandInfo.estimatedDailyRev * 7) : undefined,
             unitsAtRisk: demandInfo?.totalQty,
@@ -108,7 +106,7 @@ async function computeFromInventoryRecords(
         description: `OOS rate: ${oosRate.toFixed(1)}% across ${new Set(oosSkus.map((r: any) => r.location)).size} locations`,
         suggestedQuery: 'Which SKUs are out of stock and what is the revenue impact?',
         evidenceSnippet: `${new Set(oosSkus.map((r: any) => r.sku)).size} of ${totalSkus} SKUs at zero inventory`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           confidence: 75,
           drivers: [
@@ -126,12 +124,19 @@ async function computeFromInventoryRecords(
     locationMap.set(r.location, (locationMap.get(r.location) ?? 0) + r.available_qty);
   }
 
-  const ordersByRegion = await OrderRecord.aggregate([
-    { $match: { organizationId } },
-    { $group: { _id: '$region', totalUnits: { $sum: '$quantity' }, totalRev: { $sum: '$revenue' } } },
-    { $sort: { totalUnits: -1 } },
-    { $limit: 5 },
-  ]);
+  const orderData = await listOrdersByOrg(organizationId);
+  const regionMap = new Map<string, { totalUnits: number; totalRev: number }>();
+  for (const o of orderData) {
+    const key = o.region || 'Unknown';
+    const ex = regionMap.get(key) ?? { totalUnits: 0, totalRev: 0 };
+    ex.totalUnits += o.quantity;
+    ex.totalRev += o.revenue;
+    regionMap.set(key, ex);
+  }
+  const ordersByRegion = Array.from(regionMap.entries())
+    .map(([_id, d]) => ({ _id, totalUnits: d.totalUnits, totalRev: d.totalRev }))
+    .sort((a, b) => b.totalUnits - a.totalUnits)
+    .slice(0, 5);
 
   for (const region of ordersByRegion) {
     const locationStock = locationMap.get(region._id) ?? 0;
@@ -144,7 +149,7 @@ async function computeFromInventoryRecords(
         description: `High demand in ${region._id} but zero inventory at that location`,
         suggestedQuery: `Should we transfer inventory to ${region._id}?`,
         evidenceSnippet: `${region.totalUnits} units ordered from ${region._id} but 0 units stocked there`,
-        detectedAt: new Date(),
+        detectedAt: new Date().toISOString(),
         impact: {
           revenueAtRisk: Math.round(region.totalRev * 0.4),
           unitsAtRisk: region.totalUnits,
@@ -195,7 +200,7 @@ async function computeFromRetailRecords(
           description: `SKU ${oos.sku} at 0 inventory with active demand (${oos.units} units sold recently)`,
           suggestedQuery: `What is the revenue impact of ${oos.sku} being out of stock?`,
           evidenceSnippet: `${oos.sku}: 0 inventory, ${oos.units} units in demand`,
-          detectedAt: new Date(),
+          detectedAt: new Date().toISOString(),
           impact: {
             revenueAtRisk: Math.round(oos.revenue * 3),
             unitsAtRisk: oos.units * 3,
@@ -222,30 +227,27 @@ async function computeFromRetailRecords(
 async function getHighDemandSkus(
   organizationId: string
 ): Promise<Map<string, { totalQty: number; estimatedDailyRev: number }>> {
-  const recentOrders = await OrderRecord.aggregate([
-    { $match: { organizationId } },
-    { $group: { _id: '$sku', totalQty: { $sum: '$quantity' }, totalRev: { $sum: '$revenue' } } },
-    { $sort: { totalRev: -1 } },
-    { $limit: 50 },
-  ]);
-
-  const recentRetail = await RetailRecord.aggregate([
-    { $match: { organizationId } },
-    { $group: { _id: '$sku', totalUnits: { $sum: '$units' }, totalRev: { $sum: '$revenue' } } },
-    { $sort: { totalRev: -1 } },
-    { $limit: 50 },
+  const [orderData, retailData] = await Promise.all([
+    listOrdersByOrg(organizationId),
+    listRetailByOrg(organizationId),
   ]);
 
   const map = new Map<string, { totalQty: number; estimatedDailyRev: number }>();
-  recentOrders.forEach((r: any) => map.set(r._id, { totalQty: r.totalQty, estimatedDailyRev: r.totalRev / 14 }));
-  recentRetail.forEach((r: any) => {
-    const existing = map.get(r._id);
-    if (existing) {
-      existing.totalQty += r.totalUnits;
-      existing.estimatedDailyRev += r.totalRev / 14;
-    } else {
-      map.set(r._id, { totalQty: r.totalUnits, estimatedDailyRev: r.totalRev / 14 });
-    }
-  });
-  return map;
+  for (const o of orderData) {
+    const ex = map.get(o.sku) ?? { totalQty: 0, estimatedDailyRev: 0 };
+    ex.totalQty += o.quantity;
+    ex.estimatedDailyRev += o.revenue / 14;
+    map.set(o.sku, ex);
+  }
+  for (const r of retailData) {
+    const ex = map.get(r.sku) ?? { totalQty: 0, estimatedDailyRev: 0 };
+    ex.totalQty += r.units;
+    ex.estimatedDailyRev += r.revenue / 14;
+    map.set(r.sku, ex);
+  }
+  // Sort by estimatedDailyRev and keep top 50
+  const sorted = Array.from(map.entries())
+    .sort((a, b) => b[1].estimatedDailyRev - a[1].estimatedDailyRev)
+    .slice(0, 50);
+  return new Map(sorted);
 }

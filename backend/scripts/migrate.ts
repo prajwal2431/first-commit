@@ -1,13 +1,5 @@
-import { connect, connection } from 'mongoose';
-import { AnalysisSession } from '../src/models/AnalysisSession';
-
-async function migrate() {
-    console.log("Connecting to DB...");
-    await connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/nexus');
-    console.log("Dropping old AnalysisSessions...");
-    await AnalysisSession.deleteMany({});
-    console.log("Migration complete.");
-    await connection.close();
-}
-
-migrate().catch(console.error);
+/**
+ * MongoDB migration script — no longer used.
+ * Backend now uses DynamoDB. Run `npm run create-tables` to create DynamoDB tables.
+ */
+console.log('DynamoDB backend: no MongoDB migration needed. Use "npm run create-tables" to create tables.');
