@@ -2,9 +2,12 @@
   "name": "backend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "node node_modules/typescript/bin/tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "test": "npm run build && node --test dist/**/*.test.js"
