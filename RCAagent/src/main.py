@@ -1,4 +1,6 @@
+import logging
 import os
+
 from langchain_core.messages import HumanMessage
 from langchain.tools import tool
 from bedrock_agentcore import BedrockAgentCoreApp
@@ -8,36 +10,23 @@ from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_to
 from model.load import load_model
 
 # Short-term memory (checkpoint persistence): use when MEMORY_ID is set (e.g. by Terraform at runtime)
-MEMORY_ID = os.getenv("MEMORY_ID")
-REGION = os.getenv("AWS_REGION", "us-east-1")
-_checkpointer = None  # None = not yet tried, False = tried and skipped/failed, else AgentCoreMemorySaver
+MEMORY_ID = os.getenv("MEMORY_ID", "RCAagent_Memory-ExBO3RGgSy")
+REGION = os.getenv("AWS_REGION", "eu-west-2")
 
-
-def _get_checkpointer():
-    """Lazy init of AgentCoreMemorySaver so we don't require the package when MEMORY_ID is unset."""
-    global _checkpointer
-    if _checkpointer is not None and _checkpointer is not False:
-        return _checkpointer
-    if _checkpointer is False:
-        return None
-    if not MEMORY_ID:
-        _checkpointer = False
-        return None
+# Initialize memory components (eager init when MEMORY_ID is set; LangChain/LangGraph AWS integrations)
+checkpointer = None
+store = None
+if MEMORY_ID:
     try:
-        from langgraph_checkpoint_aws import AgentCoreMemorySaver
-        _checkpointer = AgentCoreMemorySaver(MEMORY_ID, region_name=REGION)
+        from langgraph_checkpoint_aws import AgentCoreMemorySaver, AgentCoreMemoryStore
+        checkpointer = AgentCoreMemorySaver(memory_id=MEMORY_ID, region_name=REGION)
+        store = AgentCoreMemoryStore(memory_id=MEMORY_ID, region_name=REGION)
     except Exception:
-        _checkpointer = False
-    return _checkpointer if _checkpointer is not False else None
+        checkpointer = None
+        store = None
 
-if os.getenv("LOCAL_DEV") == "1":
-    # Local dev: no Gateway; mcp_client is an async callable that returns [] so invoke can await mcp_client()
-    async def _local_no_tools():
-        return []
-    mcp_client = _local_no_tools
-else:
-    # Deployed: use the real MCP client from the aliased factory (get_streamable_http_mcp_client)
-    mcp_client = deployed_get_tools()
+# Always use AgentCore Gateway for MCP tools (requires GATEWAY_URL and COGNITO_* in .env)
+mcp_client = deployed_get_tools()
 
 # Instantiate model
 llm = load_model()
@@ -48,17 +37,35 @@ def add_numbers(a: int, b: int) -> int:
     """Return the sum of two numbers"""
     return a + b
 
+# Logging: ensure root has a console handler so local runs see INFO (idempotent)
+def _ensure_logging():
+    root = logging.getLogger()
+    if not root.handlers:
+        h = logging.StreamHandler()
+        h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        root.addHandler(h)
+        root.setLevel(logging.INFO)
+
+_logger = logging.getLogger(__name__)
+
 # Integrate with Bedrock AgentCore
 app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
 async def invoke(payload):
-    # Payload: { "prompt": "<user input>", optional: "thread_id", "actor_id" for memory }
+    # Payload: { "prompt": "<user input>", optional: "thread_id", "actor_id", "session_id", "sheet_url" }
     prompt = payload.get("prompt", "What is Agentic AI?")
     # thread_id and actor_id key short-term memory (max 100 chars for thread_id)
     thread_id = (payload.get("thread_id") or "default-session")[:100]
     actor_id = payload.get("actor_id") or "default-actor"
+    # session_id: same session for specialist agents (33+ chars) when provided by backend
+    session_id = payload.get("session_id") or ""
+    # sheet_url: passed to worker_diagnostic when user provides a Google Sheet (e.g. from Test UI)
+    sheet_url = (payload.get("sheet_url") or "").strip()
+
+    _ensure_logging()
+    _logger.info("invoke start prompt=%s thread_id=%s actor_id=%s sheet_url=%s", repr(prompt)[:80], thread_id, actor_id, "yes" if sheet_url else "no")
 
     # Load MCP Tools and build supervisor graph (Option B: verifier gets tools)
     if hasattr(mcp_client, "get_tools"):
@@ -66,11 +73,17 @@ async def invoke(payload):
     else:
         tools = await mcp_client()
     all_tools = tools + [add_numbers]
-    checkpointer = _get_checkpointer()
+    _logger.info("tools loaded count=%d", len(all_tools))
     graph = create_supervisor_graph(llm, all_tools, checkpointer=checkpointer)
 
     # Run the supervisor graph (config required for checkpoint persistence when checkpointer is set)
-    initial_state = {"messages": [HumanMessage(content=prompt)]}
+    initial_state = {
+        "messages": [HumanMessage(content=prompt)],
+        "thread_id": thread_id,
+        "actor_id": actor_id,
+        "session_id": session_id,
+        "sheet_url": sheet_url,
+    }
     config = {"configurable": {"thread_id": thread_id, "actor_id": actor_id}}
     result = await graph.ainvoke(initial_state, config=config)
 
@@ -90,8 +103,14 @@ async def invoke(payload):
         out["evidence"] = result["evidence"]
     if result.get("recommendations"):
         out["recommendations"] = result["recommendations"]
+    if result.get("specialist_results"):
+        out["specialist_results"] = result["specialist_results"]
+
+    _logger.info("invoke done result_len=%d reasoning_log=%d evidence=%d specialist_results=%d",
+                 len(last_content), len(out.get("reasoning_log", [])), len(out.get("evidence", [])),
+                 len(out.get("specialist_results", [])))
     return out
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0")

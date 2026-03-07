@@ -1,3 +1,4 @@
+import logging
 import os
 
 from langchain_core.messages import HumanMessage
@@ -6,6 +7,8 @@ from bedrock_agentcore import BedrockAgentCoreApp
 from .graph.graph import create_remediation_graph
 from .mcp_client.client import get_streamable_http_mcp_client as deployed_get_mcp_client
 from .model.load import load_model
+
+_logger = logging.getLogger(__name__)
 
 # Short-term memory (checkpoint persistence): use when MEMORY_ID is set (e.g. by Terraform at runtime)
 MEMORY_ID = os.getenv("MEMORY_ID")
@@ -27,6 +30,18 @@ if MEMORY_ID:
 mcp_client = deployed_get_mcp_client()
 llm = load_model()
 
+
+def _ensure_logging():
+    """Ensure root logger has a handler and INFO level so graph/node/main logs are visible."""
+    root = logging.getLogger()
+    if not root.handlers:
+        h = logging.StreamHandler()
+        h.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+        root.addHandler(h)
+    if root.level > logging.INFO:
+        root.setLevel(logging.INFO)
+
+
 app = BedrockAgentCoreApp()
 
 
@@ -39,7 +54,18 @@ async def invoke(payload):
     actor_id = payload.get("actor_id") or "default-actor"
     root_causes = payload.get("root_causes") or []
 
+    _ensure_logging()
+    _logger.info(
+        "[INVOKE] start prompt_len=%s thread_id=%s actor_id=%s root_causes=%s prompt_preview=%s",
+        len(prompt),
+        thread_id,
+        actor_id,
+        len(root_causes),
+        (prompt[:150] if prompt else ""),
+    )
+
     all_tools = await mcp_client.get_tools()
+    _logger.info("[INVOKE] get_tools count=%s", len(all_tools))
     graph = create_remediation_graph(llm, all_tools, checkpointer=checkpointer)
 
     initial_state = {
@@ -47,7 +73,16 @@ async def invoke(payload):
         "root_causes": root_causes,
     }
     config = {"configurable": {"thread_id": thread_id, "actor_id": actor_id}}
+    _logger.info("[INVOKE] calling graph.ainvoke")
     result = await graph.ainvoke(initial_state, config=config)
+    _logger.info(
+        "[INVOKE] ainvoke done result_keys=%s messages_count=%s remediation_actions=%s prioritized_actions=%s decision_memo=%s",
+        list(result.keys()),
+        len(result.get("messages") or []),
+        len(result.get("remediation_actions") or []),
+        len(result.get("prioritized_actions") or []),
+        bool(result.get("decision_memo")),
+    )
 
     messages = result.get("messages") or []
     last_content = ""
@@ -77,8 +112,14 @@ async def invoke(payload):
         out["evidence_traces"] = result["evidence_traces"]
     if result.get("reasoning_log"):
         out["reasoning_log"] = result["reasoning_log"]
+    _logger.info(
+        "[INVOKE] returning out_keys=%s result_preview=%s",
+        list(out.keys()),
+        (last_content or "")[:200],
+    )
     return out
 
 
 if __name__ == "__main__":
-    app.run()
+    _ensure_logging()
+    app.run(host="0.0.0.0", port=8080)
