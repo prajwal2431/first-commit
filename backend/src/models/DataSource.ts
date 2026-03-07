@@ -72,6 +72,7 @@ export interface IDataSource extends Document {
     schema?: string;
     tablesOrViews?: string[];
   };
+  sheetsUrl?: string;
   lastSyncAt?: Date;
   /** User-submitted URL for this source (e.g. Google Sheets link). Sent to the agent as sheet_url when chatting. */
   sourceUrl?: string;
@@ -101,6 +102,7 @@ const dataSourceSchema = new Schema<IDataSource>(
     columnMappings: [columnMappingSchema],
     qualityIssues: [qualityIssueSchema],
     connectionConfig: connectionConfigSchema,
+    sheetsUrl: { type: String },
     lastSyncAt: Date,
     sourceUrl: String,
   },

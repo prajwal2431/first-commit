@@ -50,7 +50,7 @@ export async function enrichSignal(
             evidence = buildFallbackEvidence(signal);
     }
 
-    const aiSummary = generateAiSummary(signal, evidence);
+    const aiSummary = await generateAiSummary(organizationId, signal, evidence);
     const recommendedActions = generateActions(signal, evidence);
     const relatedSignals = allSignals.filter(
         (s) => s.id !== signal.id && s.monitorType === signal.monitorType
@@ -413,7 +413,40 @@ function buildFallbackEvidence(signal: LiveSignal): EnrichedEvidence {
 }
 
 // ─── AI Summary Generator ──────────────────────────────────────────────────────
-function generateAiSummary(signal: LiveSignal, evidence: EnrichedEvidence): string {
+import { invokeRCAAgent } from '../rca/rcaAgentClient';
+import crypto from 'crypto';
+
+async function generateAiSummary(orgId: string, signal: LiveSignal, evidence: EnrichedEvidence): Promise<string> {
+    const defaultSummary = generateStaticSummary(signal, evidence);
+
+    try {
+        const prompt = `Please provide a concise, business-friendly 2-sentence summary explaining this data anomaly (Signal: ${signal.title}, Severity: ${signal.severity}). 
+Description: ${signal.description}.
+Evidence: ${evidence.rootCauseSummary || JSON.stringify(evidence.dataPoints)}. 
+Do not use markdown formatting, just plain text suitable for an email report.`;
+
+        // Generate a random stable session ID since this isn't a continuous chat
+        const sessionId = crypto.randomUUID();
+
+        const response = await invokeRCAAgent({
+            prompt,
+            orgId,
+            sessionId,
+            actorId: 'signal-enricher'
+        });
+
+        if (response && response.result && response.result.trim().length > 0) {
+            // Successfully generated using RCA agent
+            return response.result.trim();
+        }
+    } catch (err) {
+        console.warn('[signal-enricher] RCA agent failed to generate summary, falling back to static generation.', err);
+    }
+
+    return defaultSummary;
+}
+
+function generateStaticSummary(signal: LiveSignal, evidence: EnrichedEvidence): string {
     const parts = [signal.description];
 
     if (evidence.rootCauseSummary) {

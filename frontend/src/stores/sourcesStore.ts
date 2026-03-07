@@ -139,6 +139,10 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
       body.sourceUrl = sourceMeta.sourceUrl.trim();
     }
 
+    if (sourceMeta.sheetsUrl?.trim()) {
+      body.sheetsUrl = sourceMeta.sheetsUrl.trim();
+    }
+
     try {
       // Connect to the backend route we just created
       await request('/data-sources', {

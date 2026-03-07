@@ -21,6 +21,7 @@ import settingsRouter from './routes/settings';
 import notificationsRouter from './routes/notifications';
 import debugDbRouter from './routes/debugDb';
 import { requireAuth } from './middleware/auth';
+import { startSyncScheduler } from './services/sheets';
 import './models';
 
 const app = express();
@@ -50,6 +51,8 @@ connectDb()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
+      // Start the sheets sync scheduler (10-min interval)
+      startSyncScheduler();
     });
   })
   .catch((err) => {

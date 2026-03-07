@@ -60,6 +60,7 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [sheetsUrl, setSheetsUrl] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [sheetsUrl, setSheetsUrl] = useState('');
 
     // Reset selected platform when domain changes to avoid mismatches
     useEffect(() => {
@@ -94,7 +95,8 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
                     mode: ingestionMode === 'api' ? 'API' : ingestionMode === 'sheets' ? 'Sheets' : 'Upload',
                     type: 'integration',
                     icon: 'database',
-                    ...(ingestionMode === 'sheets' && sheetsUrl.trim() && { sourceUrl: sheetsUrl.trim() })
+                    ...(ingestionMode === 'sheets' && sheetsUrl.trim() && { sourceUrl: sheetsUrl.trim() }),
+                    sheetsUrl: ingestionMode === 'sheets' ? sheetsUrl : undefined,
                 });
             }
             onClose();

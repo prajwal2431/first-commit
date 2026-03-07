@@ -6,6 +6,8 @@ import mongoose from 'mongoose';
 import { DataSource } from '../models/DataSource';
 import { RawIngestionRecord } from '../models/RawIngestionRecord';
 import { handleExcelUpload, handleCsvUpload } from '../controllers/uploadController';
+import { syncSingleSheetSource } from '../services/sheets';
+import { computeAllMonitors } from '../services/monitors/computeAll';
 
 const PREVIEW_LIMIT = 100;
 
@@ -61,22 +63,42 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
     const userId = req.user?.userId ?? 'default';
-    const { name, label, type, domain, mode, sourceUrl } = req.body;
+    const { name, label, type, domain, mode, sourceUrl, sheetsUrl } = req.body;
+
+    // Use either sheetsUrl or sourceUrl if mode is Sheets
+    const finalUrl = sheetsUrl || sourceUrl;
+    const isSheets = mode === 'Sheets' && finalUrl;
 
     // Create new DataSource model instance
     const newSource = await DataSource.create({
       userId,
       organizationId: orgId,
       fileName: name || label || 'Integration',
-      fileType: type || 'integration',
+      fileType: isSheets ? 'sheets' : (type || 'integration'),
       label: label || name,
       domain: domain || 'Data Ingestion',
       mode: mode || 'API',
-      status: 'connected', // Immediately marked as connected for now
-      ...(typeof sourceUrl === 'string' && sourceUrl.trim() && { sourceUrl: sourceUrl.trim() }),
+      status: isSheets ? 'syncing' : 'connected',
+      sheetsUrl: isSheets ? finalUrl : undefined,
+      ...(typeof finalUrl === 'string' && finalUrl.trim() && { sourceUrl: finalUrl.trim() }),
     });
 
     res.status(201).json(newSource);
+
+    // For sheets sources: trigger immediate sync in the background
+    if (isSheets) {
+      syncSingleSheetSource(newSource)
+        .then((result) => {
+          if (result && result.inserted > 0) {
+            console.log(`[data-sources] Initial sheet sync done: ${result.inserted} records (${result.dataType})`);
+            // Recompute monitors with fresh data
+            return computeAllMonitors(orgId);
+          }
+        })
+        .catch((err) => {
+          console.error('[data-sources] Initial sheet sync failed:', err);
+        });
+    }
   } catch (err) {
     console.error('Create data source error:', err);
     res.status(500).json({ message: 'Failed to create data source' });
@@ -97,13 +119,56 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Data source not found' });
     }
 
-    // Attempt to cleanup related ingestion records if any
-    await RawIngestionRecord.deleteMany({ sourceId: String(id) });
+    // Cleanup related records from all collections
+    const sourceIdStr = String(id);
+    await Promise.all([
+      RawIngestionRecord.deleteMany({ sourceId: sourceIdStr }),
+      // Also clean typed records (for sheets sources)
+      import('../models/RetailRecord').then(m => m.RetailRecord.deleteMany({ sourceId: sourceIdStr })),
+      import('../models/OrderRecord').then(m => m.OrderRecord.deleteMany({ sourceId: sourceIdStr })),
+      import('../models/InventoryRecord').then(m => m.InventoryRecord.deleteMany({ sourceId: sourceIdStr })),
+    ]);
+
+    // Recompute monitors after data removal
+    computeAllMonitors(orgId).catch(err => console.error('Post-delete recompute failed:', err));
 
     res.status(200).json({ message: 'Data source deleted successfully' });
   } catch (err) {
     console.error('Delete data source error:', err);
     res.status(500).json({ message: 'Failed to delete data source' });
+  }
+});
+
+// POST /api/data-sources/:id/sync — manually trigger sync for a sheet source
+router.post('/:id/sync', async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid data source ID' });
+    }
+    const orgId = req.user?.tenantId ?? 'default';
+    const source = await DataSource.findOne({ _id: id, organizationId: orgId });
+    if (!source) {
+      return res.status(404).json({ message: 'Data source not found' });
+    }
+    if (!source.sheetsUrl) {
+      return res.status(400).json({ message: 'This data source does not have a Google Sheets URL' });
+    }
+
+    // Run sync
+    const result = await syncSingleSheetSource(source);
+    if (result && result.inserted > 0) {
+      await computeAllMonitors(orgId);
+    }
+
+    res.json({
+      success: true,
+      inserted: result?.inserted ?? 0,
+      dataType: result?.dataType ?? 'unknown',
+    });
+  } catch (err) {
+    console.error('Manual sync error:', err);
+    res.status(500).json({ message: 'Sync failed' });
   }
 });
 

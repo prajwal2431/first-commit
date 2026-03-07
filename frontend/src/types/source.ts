@@ -5,6 +5,7 @@ export interface DataSource {
     type: string;
     domain?: string;
     mode?: string;
+    sheetsUrl?: string;
     status: 'connected' | 'syncing' | 'error' | 'disconnected';
     lastSync: string;
     icon?: string;

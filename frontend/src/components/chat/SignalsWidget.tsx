@@ -33,14 +33,26 @@ const SignalsWidget: React.FC = () => {
         );
     };
 
-    const criticalItems = liveSignals.filter(s => s.severity === 'critical');
-    const highItems = liveSignals.filter(s => s.severity === 'high');
-    const mediumItems = liveSignals.filter(s => s.severity === 'medium');
-
     // Aggregate total impact
     const totalImpact = liveSignals.reduce((sum, s) => {
         return sum + (s.impact?.revenueAtRisk ?? s.impact?.marginAtRisk ?? 0);
     }, 0);
+
+    // Sort signals: Critical > High > Medium > Low, then by date (newest first)
+    const severityPoints: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    const sortedSignals = [...liveSignals].sort((a, b) => {
+        const pA = severityPoints[a.severity] || 0;
+        const pB = severityPoints[b.severity] || 0;
+        if (pA !== pB) return pB - pA;
+        return new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime();
+    });
+
+    const activeSignals = sortedSignals.slice(0, 20);
+    const archivedSignals = sortedSignals.slice(20);
+
+    const criticalItems = activeSignals.filter(s => s.severity === 'critical');
+    const highItems = activeSignals.filter(s => s.severity === 'high');
+    const mediumItems = activeSignals.filter(s => s.severity === 'medium' || s.severity === 'low');
 
     return (
         <div className="flex flex-col h-full bg-transparent p-4 relative overflow-hidden group">
@@ -49,7 +61,7 @@ const SignalsWidget: React.FC = () => {
             <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-mono font-bold tracking-widest text-gray-400 uppercase">Live Signals ({liveSignals.length})</span>
                 {totalImpact > 0 && (
-                    <span className="text-xs font-mono font-bold text-red-600 bg-red-50 px-1.5 py-0.5">
+                    <span className="text-xs font-mono font-bold text-red-600 bg-red-50 px-1.5 py-0.5 border border-red-100/50">
                         ₹{formatNum(totalImpact)} IMPACT
                     </span>
                 )}
@@ -58,9 +70,10 @@ const SignalsWidget: React.FC = () => {
             {/* Severity Breakdown Bar */}
             <div className="flex items-center gap-1 mb-4">
                 <div className="h-1.5 flex-1 bg-gray-100 overflow-hidden flex">
-                    <div style={{ width: `${(criticalItems.length / liveSignals.length) * 100}%` }} className="h-full bg-red-500" />
-                    <div style={{ width: `${(highItems.length / liveSignals.length) * 100}%` }} className="h-full bg-orange-500" />
-                    <div style={{ width: `${(mediumItems.length / liveSignals.length) * 100}%` }} className="h-full bg-amber-500" />
+                    <div style={{ width: `${(criticalItems.length / Math.max(1, liveSignals.length)) * 100}%` }} className="h-full bg-red-500" />
+                    <div style={{ width: `${(highItems.length / Math.max(1, liveSignals.length)) * 100}%` }} className="h-full bg-orange-500" />
+                    <div style={{ width: `${(mediumItems.length / Math.max(1, liveSignals.length)) * 100}%` }} className="h-full bg-amber-500" />
+                    <div style={{ width: `${(archivedSignals.length / Math.max(1, liveSignals.length)) * 100}%` }} className="h-full bg-gray-300" />
                 </div>
             </div>
 
@@ -70,7 +83,7 @@ const SignalsWidget: React.FC = () => {
                     <button
                         key={f}
                         onClick={() => setFilter(f)}
-                        className={`text-xs font-mono font-bold uppercase transition-all border px-2 py-1 rounded-none whitespace-nowrap ${filter === f ? 'bg-black text-white border-black' : 'bg-white text-gray-400 border-gray-100 hover:border-gray-200'}`}
+                        className={`text-[10px] sm:text-xs font-mono font-bold uppercase transition-all border px-2 py-1 rounded-none whitespace-nowrap ${filter === f ? 'bg-black text-white border-black' : 'bg-white text-gray-400 border-gray-100 hover:border-gray-200'}`}
                     >
                         {f}
                     </button>
@@ -109,6 +122,18 @@ const SignalsWidget: React.FC = () => {
                         onSignalClick={(id) => navigate(`/dashboard/signals/${id}`)}
                     />
                 )}
+
+                {/* Archived section at the bottom for signals > 20 */}
+                {filter === 'all' && archivedSignals.length > 0 && (
+                    <SignalGroup
+                        id="archived"
+                        title="ARCHIVED SIGNALS"
+                        items={archivedSignals}
+                        isExpanded={expandedGroups.includes('archived')}
+                        onToggle={() => toggleGroup('archived')}
+                        onSignalClick={(id) => navigate(`/dashboard/signals/${id}`)}
+                    />
+                )}
             </div>
         </div>
     );
@@ -131,7 +156,7 @@ const SignalGroup: React.FC<{
                 className="flex items-center justify-between w-full pb-1 hover:opacity-80 transition-opacity cursor-pointer group"
             >
                 <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
+                    <span className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : id === 'archived' ? 'bg-gray-400' : 'bg-amber-500'}`} />
                     <span className="text-xs font-mono font-black text-gray-900 tracking-wider bg-gray-50 px-2 py-0.5 rounded-none">{title} ({items.length})</span>
                 </div>
                 <div className="text-gray-400 group-hover:text-black">
@@ -158,7 +183,7 @@ const SignalGroup: React.FC<{
                                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-gray-100 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-none" />
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                                        <div className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : 'bg-amber-500'}`} />
+                                        <div className={`w-2 h-2 rounded-full ${id === 'critical' ? 'bg-red-500' : id === 'high' ? 'bg-orange-500' : id === 'archived' ? 'bg-gray-400' : 'bg-amber-500'}`} />
                                         <span className="text-[10px] font-mono font-bold uppercase tracking-tighter">{item.monitorType}</span>
                                     </div>
                                     <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{formatTime(item.detectedAt)}</span>
