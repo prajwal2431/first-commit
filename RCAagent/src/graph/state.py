@@ -38,6 +38,12 @@ class RCAGraphState(TypedDict, total=False):
     evidence: Annotated[list[dict[str, Any]], _list_reducer]
     recommendations: Annotated[list[dict[str, Any]], _list_reducer]
     reasoning_log: Annotated[list[dict[str, Any]], _list_reducer]
+    specialist_results: Annotated[list[dict[str, Any]], _list_reducer]
     current_phase: Annotated[str, _last_str_reducer]
     # Written by supervisor; read by conditional edge. No reducer (overwrite).
     supervisor_decision: dict[str, Any]
+    # Passed from entrypoint; injected into specialist payloads. No reducer (overwrite).
+    thread_id: str
+    actor_id: str
+    session_id: str
+    sheet_url: str  # Injected into worker_diagnostic payload when set (e.g. from Test UI)

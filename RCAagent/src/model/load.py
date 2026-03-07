@@ -1,16 +1,35 @@
 import os
 
-from langchain_aws import ChatBedrock
+# from langchain_aws import ChatBedrock
 
 # Amazon Nova (no third-party marketplace / use-case form; uses standard Bedrock access).
 # Override with BEDROCK_MODEL_ID env var if needed.
-MODEL_ID = "amazon.nova-lite-v1:0"
+import os
+from langchain_openai import ChatOpenAI
+from bedrock_agentcore.identity.auth import requires_api_key
+from dotenv import load_dotenv
 
+@requires_api_key(provider_name=os.getenv("BEDROCK_AGENTCORE_MODEL_PROVIDER_API_KEY_NAME", ""))
+def agentcore_identity_api_key_provider(api_key: str) -> str:
+    return api_key
 
-def load_model() -> ChatBedrock:
+def _get_api_key() -> str:
+    """Provide API key"""
+    if os.getenv("LOCAL_DEV") == "1":
+        load_dotenv(".env.local")
+        return os.getenv("OPENAI_API_KEY")
+    else:
+        return agentcore_identity_api_key_provider()
+
+MODEL_ID = "gpt-5.1"
+
+def load_model() -> ChatOpenAI:
     """
-    Get Bedrock model client (Amazon Nova by default).
-    Uses IAM authentication via the execution role.
+    Get authenticated OpenAI model client.
+    Uses AgentCore Identity for API key management in deployed environments,
+    and falls back to .env file for local development.
     """
-    model_id = os.getenv("BEDROCK_MODEL_ID", MODEL_ID)
-    return ChatBedrock(model_id=model_id)
+    return ChatOpenAI(
+        model=MODEL_ID,
+        api_key=_get_api_key()
+    )

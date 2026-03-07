@@ -3,6 +3,7 @@ Supervisor and worker nodes for the Diagnostic Analyst graph.
 Supervisor runs: decompose -> drilldown (parallel) -> synthesize. Sheet data is fetched by Lambda when query_business_data is called with sheet_url from state.
 """
 import json
+import logging
 import re
 from typing import Any
 
@@ -11,26 +12,36 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 
 from .state import DiagnosticGraphState
 
+logger = logging.getLogger(__name__)
+
 WORKER_DECOMPOSE = "worker_decompose"
 WORKER_DRILLDOWN = "worker_drilldown"
 WORKER_SYNTHESIZE = "worker_synthesize"
 
 SUPERVISOR_SYSTEM = """You are the supervisor for the Diagnostic Analyst (Nexus Intelligence). You mathematically decompose KPI deviations.
 
-Flow (follow in order):
-1. worker_decompose: Pull Traffic, CVR, AOV via query_business_data (pass sheet_url from state if present) and rank drivers via calculate_contribution_score. Call once first.
-2. worker_drilldown: Check if the drop is localized to a segment. Call in parallel for each dimension: Pincode, Region, Channel. Use payload {"segment_dimension": "Region", "segment_value": "North India"} (or Channel/Myntra, Pincode/110001, etc.).
-3. worker_synthesize: Produce the final DiagnosticResult with ranked drivers and evidence. Call once when decompose and drilldown are done.
+STRICT RULES (you must follow exactly):
+
+1. Decompose Phase: Call worker_decompose ONCE first. It pulls Traffic, CVR, AOV via query_business_data (sheet_url from state if present) and ranks drivers via calculate_contribution_score.
+
+2. One-Shot Rule: You are STRICTLY FORBIDDEN from calling worker_decompose a second time. If KPI slices or contribution_scores are already in the state (count > 0 in "Current state"), decompose has already run — do NOT call worker_decompose again. Move to worker_drilldown or worker_synthesize.
+
+3. Drilldown Phase: After decompose, call worker_drilldown (one or more times, in parallel if you like) with payload {"segment_dimension": "Region", "segment_value": "North India"} (or Channel/Myntra, Pincode/110001, etc.). Do not call worker_decompose again.
+
+4. Synthesis Phase: When decompose (and optionally drilldown) are done, call worker_synthesize exactly once with task "Summarize DiagnosticResult with ranked drivers and evidence."
+
+5. Termination: After worker_synthesize is complete, respond with {"done": true}. Do not call any workers after synthesis.
 
 You must respond with ONLY a valid JSON object, no other text:
 
-1. To finish: {"done": true}
-2. To call workers: {"sends": [{"node": "<worker_name>", "payload": <object>}, ...]}
+- To finish: {"done": true}
+- To call workers: {"sends": [{"node": "<worker_name>", "payload": <object>}, ...]}
 
 Examples:
-- First step: {"sends": [{"node": "worker_decompose", "payload": {"task": "Decompose revenue drop: pull Traffic, CVR, AOV and rank contribution"}}]}
-- Segment drilldown: {"sends": [{"node": "worker_drilldown", "payload": {"segment_dimension": "Region", "segment_value": "North India"}}, {"node": "worker_drilldown", "payload": {"segment_dimension": "Channel", "segment_value": "Myntra"}}, {"node": "worker_drilldown", "payload": {"segment_dimension": "Pincode", "segment_value": "110001"}}]}
+- First step only (once): {"sends": [{"node": "worker_decompose", "payload": {"task": "Decompose revenue drop: pull Traffic, CVR, AOV and rank contribution"}}]}
+- After decompose (do NOT call worker_decompose again): {"sends": [{"node": "worker_drilldown", "payload": {"segment_dimension": "Region", "segment_value": "North India"}}, {"node": "worker_drilldown", "payload": {"segment_dimension": "Channel", "segment_value": "Myntra"}}]}
 - Final step: {"sends": [{"node": "worker_synthesize", "payload": {"task": "Summarize DiagnosticResult with ranked drivers and evidence"}}]}
+- After synthesis: {"done": true}
 
 Valid node names: worker_decompose, worker_drilldown, worker_synthesize.
 """
@@ -84,10 +95,14 @@ def make_supervisor_node(llm: Any) -> Any:
             decision = {"done": True}
 
         if decision.get("done"):
+            logger.debug("supervisor decision: done=true")
             return {"supervisor_decision": {"done": True}}
         sends = decision.get("sends") or []
         if not sends:
+            logger.debug("supervisor decision: no sends, done")
             return {"supervisor_decision": {"done": True}}
+        node_names = [s.get("node") for s in sends]
+        logger.info("supervisor decision: sends=%s", node_names)
         return {"supervisor_decision": {"sends": sends}}
 
     return supervisor_node
@@ -113,11 +128,13 @@ def make_worker_decompose(llm: Any, query_tool: Any, contribution_tool: Any) -> 
 
     def node(state: dict[str, Any]) -> dict[str, Any]:
         # Call tools directly so we have structured data for state; pass sheet_url from state for Lambda to fetch CSV
+        sheet_url = state.get("sheet_url") or ""
+        logger.info("worker_decompose entry sheet_url=%s", "set" if sheet_url else "none")
+
         out_slices: list[dict[str, Any]] = []
         out_scores: list[dict[str, Any]] = []
         gaps: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
-        sheet_url = state.get("sheet_url") or ""
 
         try:
             raw = query_tool.invoke({"metric": "all", "period": "WoW", "sheet_url": sheet_url})
@@ -186,6 +203,8 @@ def make_worker_drilldown(llm: Any, query_tool: Any) -> Any:
         dim = state.get("segment_dimension") or "Region"
         val = state.get("segment_value") or "North India"
         sheet_url = state.get("sheet_url") or ""
+        logger.info("worker_drilldown entry dimension=%s segment_value=%s", dim, val)
+
         breakdown: dict[str, Any] = {
             "dimension": dim,
             "segment_value": val,
@@ -236,6 +255,7 @@ def make_worker_synthesize(llm: Any) -> Any:
     """Worker: produce final DiagnosticResult with ranked drivers and evidence. No tools. Flag Data Quality Gaps."""
 
     def node(state: dict[str, Any]) -> dict[str, Any]:
+        logger.info("worker_synthesize entry")
         task = state.get("task", "Summarize DiagnosticResult with ranked drivers and evidence.")
         system = """You are the Diagnostic Analyst for Nexus Intelligence. Summarize the diagnosis from the gathered data.
 Output a short narrative (2-4 sentences) that: (1) states the top ranked driver of the revenue drop, (2) mentions segment localization if any, (3) notes any Data Quality Gaps. Do not guess external reasons; only report what the internal data confirms."""

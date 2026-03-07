@@ -5,7 +5,7 @@ import requests
 COGNITO_TOKEN_URL = os.getenv("COGNITO_TOKEN_URL")
 COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID")
 COGNITO_CLIENT_SECRET = os.getenv("COGNITO_CLIENT_SECRET")
-COGNITO_SCOPE = os.getenv("COGNITO_SCOPE")
+COGNITO_SCOPE = os.getenv("COGNITO_SCOPE")  # Commented out: app client has no scope
 
 def _get_access_token():
     """
