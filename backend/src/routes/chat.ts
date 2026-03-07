@@ -8,6 +8,7 @@ import { InventoryRecord } from '../models/InventoryRecord';
 import { generateChatResponse } from '../services/analysis/narrator';
 import { runFullAnalysis } from '../services/analysis/runAnalysis';
 import { invokeRCAAgent } from '../services/rca/rcaAgentClient';
+import { getFakeAgentResponse } from '../services/rca/fakeAgentDemo';
 
 const router = Router();
 
@@ -52,10 +53,31 @@ router.post('/message', async (req: Request, res: Response) => {
     const lowerMsg = message.toLowerCase();
     let responseText = '';
     let responseType = 'analysis';
+    let responseParts: string[] | undefined;
 
-    const useRcaAgent = process.env.USE_RCA_AGENT_FOR_CHAT !== 'false';
+    const fakeAgentForDemo = process.env.FAKE_AGENT_FOR_DEMO === 'true';
+    const useRcaAgent = !fakeAgentForDemo && process.env.USE_RCA_AGENT_FOR_CHAT !== 'false';
 
-    if (useRcaAgent) {
+    if (fakeAgentForDemo) {
+      // Demo/video mode: use live signals + dashboard data so the answer matches the graph; no agent call
+      const dashboard = await DashboardState.findOne({ organizationId: orgId }).lean();
+      const resolvedIds = dashboard?.resolvedSignalIds ?? [];
+      const liveSignals = (dashboard?.liveSignals ?? []).filter(
+        (s: { id?: string }) => !resolvedIds.includes(s.id ?? '')
+      );
+      let dataResponse: string | undefined;
+      if (isDataQuery(lowerMsg)) {
+        dataResponse = await handleDataQuery(orgId, lowerMsg);
+      }
+      const fakeResult = await getFakeAgentResponse(message, {
+        liveSignals,
+        kpiSummary: dashboard?.kpiSummary ?? undefined,
+        dataResponse: dataResponse ?? undefined,
+      });
+      responseText = fakeResult.response;
+      responseParts = fakeResult.responses;
+      responseType = 'analysis';
+    } else if (useRcaAgent) {
       try {
         // Resolve sheet_url: from body, or from latest data source's submitted URL (sourceUrl), or fallback to backend records API
         let sheetUrl: string | undefined = bodySheetUrl;
@@ -147,20 +169,32 @@ router.post('/message', async (req: Request, res: Response) => {
       }
     }
 
-    // Add assistant message
-    session.messages.push({
-      id: (Date.now() + 1).toString(),
-      role: 'assistant' as const,
-      content: responseText,
-      timestamp: new Date()
-    });
+    // Add assistant message(s) to session
+    if (responseParts && responseParts.length > 0) {
+      for (let i = 0; i < responseParts.length; i++) {
+        session.messages.push({
+          id: `${Date.now() + i}`,
+          role: 'assistant' as const,
+          content: responseParts[i],
+          timestamp: new Date()
+        });
+      }
+    } else {
+      session.messages.push({
+        id: (Date.now() + 1).toString(),
+        role: 'assistant' as const,
+        content: responseText,
+        timestamp: new Date()
+      });
+    }
     await session.save();
 
     return res.json({
       response: responseText,
       type: responseType,
       analysisId: session._id,
-      sessionId: session._id
+      sessionId: session._id,
+      ...(responseParts && responseParts.length > 1 ? { responses: responseParts } : {}),
     });
 
   } catch (err) {

@@ -80,37 +80,42 @@ export const useChatStore = create<ChatState>()(
 
                     const latestState = get();
                     const msgsAfterUser = latestState.messagesBySession[sid] || [];
+                    const realSessionId = data?.sessionId ?? data?.analysisId;
 
-                    if (data && data.response) {
-                        const botMsg: ChatMessage = {
-                            id: (Date.now() + 1).toString(),
-                            role: 'assistant',
-                            content: data.response,
-                            timestamp: new Date().toISOString(),
-                        };
+                    // Support multiple responses (e.g. demo mode: "thinking" then full analysis)
+                    const parts: string[] = Array.isArray(data?.responses) && data.responses.length > 0
+                        ? data.responses
+                        : (data?.response ? [data.response] : []);
 
-                        const realSessionId = data.sessionId ?? data.analysisId;
-                        const messagesForSession = [...msgsAfterUser, botMsg];
+                    if (parts.length > 0) {
+                        const delayBetweenParts = 1800;
 
-                        // If backend returned a different session id (e.g. MongoDB ObjectId), migrate messages and use it
-                        if (realSessionId && realSessionId !== sid) {
+                        for (let i = 0; i < parts.length; i++) {
+                            if (i > 0) {
+                                await new Promise((r) => setTimeout(r, delayBetweenParts));
+                            }
+                            const botMsg: ChatMessage = {
+                                id: `${Date.now() + i}`,
+                                role: 'assistant',
+                                content: parts[i],
+                                timestamp: new Date().toISOString(),
+                            };
+                            const currentMsgs = get().messagesBySession[sid] || get().messagesBySession[realSessionId] || msgsAfterUser;
+                            const messagesForSession = [...currentMsgs, botMsg];
+
                             set({
                                 messagesBySession: {
-                                    ...latestState.messagesBySession,
+                                    ...get().messagesBySession,
                                     [sid]: messagesForSession,
-                                    [realSessionId]: messagesForSession,
+                                    ...(realSessionId && realSessionId !== sid ? { [realSessionId]: messagesForSession } : {}),
                                 },
-                                activeSessionId: realSessionId,
-                            });
-                        } else {
-                            set({
-                                messagesBySession: {
-                                    ...latestState.messagesBySession,
-                                    [sid]: messagesForSession,
-                                },
+                                ...(realSessionId ? { activeSessionId: realSessionId } : {}),
+                                isTyping: i < parts.length - 1,
                             });
                         }
                     }
+
+                    set({ isTyping: false });
                     return { sessionId: data?.sessionId ?? data?.analysisId };
                 } catch (err) {
                     console.error('Failed to send message', err);
