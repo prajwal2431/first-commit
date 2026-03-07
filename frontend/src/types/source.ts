@@ -8,6 +8,8 @@ export interface DataSource {
     status: 'connected' | 'syncing' | 'error' | 'disconnected';
     lastSync: string;
     icon?: string;
+    /** User-submitted URL (e.g. Google Sheets link). Sent to the agent as sheet_url when chatting. */
+    sourceUrl?: string;
 }
 
 export interface ConnectSourceRequest {

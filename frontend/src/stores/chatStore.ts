@@ -12,7 +12,7 @@ interface ChatState {
 
     setChatOpen: (isOpen: boolean) => void;
     setActiveSession: (sessionId: string | null) => void;
-    sendMessage: (sessionId: string, text: string) => Promise<{ sessionId?: string } | void>;
+    sendMessage: (sessionId: string, text: string, options?: { sheet_url?: string }) => Promise<{ sessionId?: string } | void>;
     loadMessages: (sessionId: string) => Promise<void>;
     clearMessages: () => void;
 }
@@ -48,7 +48,7 @@ export const useChatStore = create<ChatState>()(
                 }
             },
 
-            sendMessage: async (sessionId: string, text: string) => {
+            sendMessage: async (sessionId: string, text: string, options?: { sheet_url?: string }) => {
                 const state = get();
                 const sid = sessionId;
 
@@ -69,10 +69,13 @@ export const useChatStore = create<ChatState>()(
                     isTyping: true
                 });
 
+                const body: { message: string; sessionId: string; sheet_url?: string } = { message: text, sessionId: sid };
+                if (options?.sheet_url) body.sheet_url = options.sheet_url;
+
                 try {
                     const data = await request<any>('/chat/message', {
                         method: 'POST',
-                        body: JSON.stringify({ message: text, sessionId: sid }),
+                        body: JSON.stringify(body),
                     });
 
                     const latestState = get();

@@ -6,6 +6,8 @@ export interface RCAAgentInvokeParams {
   orgId: string;
   sessionId: string;
   actorId?: string;
+  /** URL to the user's data source (e.g. records API or sheet link). Sent to the agent for context. */
+  sheet_url?: string;
 }
 
 export interface RCAAgentResult {
@@ -49,13 +51,20 @@ export async function invokeRCAAgent(params: RCAAgentInvokeParams): Promise<RCAA
     throw new Error('RCA_AGENT_RUNTIME_ARN is not configured');
   }
 
-  const { prompt, orgId, sessionId, actorId = 'chat' } = params;
+  const { prompt, orgId, sessionId, actorId = 'chat', sheet_url } = params;
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     prompt,
     thread_id: sessionId,
     actor_id: actorId,
   };
+  if (sheet_url) {
+    payload.sheet_url = sheet_url;
+  }
+
+  // Debug: log payload sent to agent
+  // eslint-disable-next-line no-console
+  console.log('[RCAagent] Sending to agent:', JSON.stringify(payload, null, 2));
 
   const runtimeSessionId = buildRuntimeSessionId(orgId, sessionId);
 

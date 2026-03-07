@@ -61,7 +61,7 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
     const userId = req.user?.userId ?? 'default';
-    const { name, label, type, domain, mode } = req.body;
+    const { name, label, type, domain, mode, sourceUrl } = req.body;
 
     // Create new DataSource model instance
     const newSource = await DataSource.create({
@@ -73,6 +73,7 @@ router.post('/', async (req: Request, res: Response) => {
       domain: domain || 'Data Ingestion',
       mode: mode || 'API',
       status: 'connected', // Immediately marked as connected for now
+      ...(typeof sourceUrl === 'string' && sourceUrl.trim() && { sourceUrl: sourceUrl.trim() }),
     });
 
     res.status(201).json(newSource);

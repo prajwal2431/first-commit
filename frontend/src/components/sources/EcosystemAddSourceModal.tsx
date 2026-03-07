@@ -58,6 +58,7 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
     const [platformSearch, setPlatformSearch] = useState("");
 
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [sheetsUrl, setSheetsUrl] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Reset selected platform when domain changes to avoid mismatches
@@ -71,7 +72,8 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
         if (isOpen) {
             clearUploadError();
         } else {
-            setIsDropdownOpen(false); // Make sure dropdown closes on modal close
+            setIsDropdownOpen(false);
+            setSheetsUrl('');
         }
     }, [isOpen, clearUploadError]);
 
@@ -91,7 +93,8 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
                     domain: canonicalDomain,
                     mode: ingestionMode === 'api' ? 'API' : ingestionMode === 'sheets' ? 'Sheets' : 'Upload',
                     type: 'integration',
-                    icon: 'database'
+                    icon: 'database',
+                    ...(ingestionMode === 'sheets' && sheetsUrl.trim() && { sourceUrl: sheetsUrl.trim() })
                 });
             }
             onClose();
@@ -101,6 +104,12 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
             setIsProcessing(false);
         }
     };
+
+    const canConnect = ingestionMode === 'upload'
+        ? !!selectedFile
+        : ingestionMode === 'sheets'
+            ? !!sheetsUrl.trim()
+            : true;
 
     if (!isOpen) return null;
 
@@ -335,7 +344,13 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
                                     </div>
                                     <div>
                                         <label className="block font-mono text-[10px] text-gray-500 mb-2 uppercase tracking-widest">Read-Only URL</label>
-                                        <input type="text" placeholder="https://docs.google.com/spreadsheets/d/..." className="w-full bg-white border border-gray-200 p-3 outline-none focus:border-black font-mono text-xs transition-colors rounded-none shadow-sm" />
+                                        <input
+                                            type="url"
+                                            value={sheetsUrl}
+                                            onChange={(e) => setSheetsUrl(e.target.value)}
+                                            placeholder="https://docs.google.com/spreadsheets/d/..."
+                                            className="w-full bg-white border border-gray-200 p-3 outline-none focus:border-black font-mono text-xs transition-colors rounded-none shadow-sm"
+                                        />
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                                         <div>
@@ -428,7 +443,7 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
                         </button>
                         <button
                             onClick={handleConnect}
-                            disabled={isProcessing || (ingestionMode === 'upload' && !selectedFile)}
+                            disabled={isProcessing || !canConnect}
                             className="flex-1 sm:flex-none px-6 py-2.5 outline-none border border-black bg-black text-white font-mono text-xs tracking-widest hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:border-gray-400 flex items-center justify-center gap-2 shadow-lg rounded-none"
                         >
                             {isProcessing ? 'CONNECTING...' : <>CONNECT <ArrowRight size={14} /></>}

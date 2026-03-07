@@ -13,6 +13,7 @@ interface BackendDataSource {
   recordCount?: number;
   uploadedAt: string;
   errorMessage?: string;
+  sourceUrl?: string;
 }
 
 function formatLastSync(iso: string): string {
@@ -43,6 +44,7 @@ function mapSource(b: BackendDataSource): DataSource {
     status: mapStatus(b.status),
     lastSync: formatLastSync(b.uploadedAt),
     icon: b.fileType === 'excel' ? 'file' : b.fileType,
+    ...(b.sourceUrl && { sourceUrl: b.sourceUrl }),
   };
 }
 
@@ -126,17 +128,22 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
     // Optimistically add to UI
     set((state) => ({ sources: [mockSource, ...state.sources] }));
 
+    const body: Record<string, string> = {
+      name: sourceMeta.name || 'Unknown Source',
+      label: sourceMeta.label || sourceMeta.name || 'Unknown Source',
+      type: sourceMeta.type || 'api',
+      domain: sourceMeta.domain || 'Data Ingestion',
+      mode: sourceMeta.mode || 'API'
+    };
+    if (sourceMeta.sourceUrl?.trim()) {
+      body.sourceUrl = sourceMeta.sourceUrl.trim();
+    }
+
     try {
       // Connect to the backend route we just created
       await request('/data-sources', {
         method: 'POST',
-        body: JSON.stringify({
-          name: sourceMeta.name || 'Unknown Source',
-          label: sourceMeta.label || sourceMeta.name || 'Unknown Source',
-          type: sourceMeta.type || 'api',
-          domain: sourceMeta.domain || 'Data Ingestion',
-          mode: sourceMeta.mode || 'API'
-        })
+        body: JSON.stringify(body)
       });
 
       // Refetch actual list which will include the new source from DB

@@ -73,6 +73,8 @@ export interface IDataSource extends Document {
     tablesOrViews?: string[];
   };
   lastSyncAt?: Date;
+  /** User-submitted URL for this source (e.g. Google Sheets link). Sent to the agent as sheet_url when chatting. */
+  sourceUrl?: string;
 }
 
 const dataSourceSchema = new Schema<IDataSource>(
@@ -100,6 +102,7 @@ const dataSourceSchema = new Schema<IDataSource>(
     qualityIssues: [qualityIssueSchema],
     connectionConfig: connectionConfigSchema,
     lastSyncAt: Date,
+    sourceUrl: String,
   },
   { timestamps: true }
 );

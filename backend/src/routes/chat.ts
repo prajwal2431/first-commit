@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { AnalysisSession } from '../models/AnalysisSession';
 import { DashboardState } from '../models/DashboardState';
+import { DataSource } from '../models/DataSource';
 import { RetailRecord } from '../models/RetailRecord';
 import { OrderRecord } from '../models/OrderRecord';
 import { InventoryRecord } from '../models/InventoryRecord';
@@ -13,7 +14,7 @@ const router = Router();
 router.post('/message', async (req: Request, res: Response) => {
   try {
     const orgId = req.user?.tenantId ?? 'default';
-    const { message, sessionId } = req.body;
+    const { message, sessionId, sheet_url: bodySheetUrl } = req.body;
 
     if (!message) {
       return res.status(400).json({ message: 'Message is required' });
@@ -56,6 +57,27 @@ router.post('/message', async (req: Request, res: Response) => {
 
     if (useRcaAgent) {
       try {
+        // Resolve sheet_url: from body, or from latest data source's submitted URL (sourceUrl), or fallback to backend records API
+        let sheetUrl: string | undefined = bodySheetUrl;
+        if (!sheetUrl) {
+          const latestSource = await DataSource.findOne(
+            { organizationId: orgId, status: { $in: ['completed', 'connected'] } },
+            { _id: 1, sourceUrl: 1 }
+          )
+            .sort({ uploadedAt: -1 })
+            .lean();
+          if (latestSource) {
+            // Prefer the URL the user submitted (e.g. Google Sheets link); otherwise use our records API URL
+            if (typeof latestSource.sourceUrl === 'string' && latestSource.sourceUrl.trim()) {
+              sheetUrl = latestSource.sourceUrl.trim();
+            } else {
+              const baseUrl = process.env.PUBLIC_API_BASE_URL?.replace(/\/$/, '');
+              if (baseUrl) {
+                sheetUrl = `${baseUrl}/api/data-sources/${latestSource._id}/records`;
+              }
+            }
+          }
+        }
         // Same user = same actor_id; different chat = different thread_id (session._id)
         const actorId = req.user?.userId ?? 'anonymous';
         const agentResult = await invokeRCAAgent({
@@ -63,6 +85,7 @@ router.post('/message', async (req: Request, res: Response) => {
           orgId,
           sessionId: String(session._id),
           actorId,
+          sheet_url: sheetUrl,
         });
         responseText = agentResult.result;
         responseType = 'analysis';
