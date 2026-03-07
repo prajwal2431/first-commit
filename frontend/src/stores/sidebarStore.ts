@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 interface SidebarState {
     isOpen: boolean;
-    width: number;
+    width: number | string;
     toggle: () => void;
     close: () => void;
 }

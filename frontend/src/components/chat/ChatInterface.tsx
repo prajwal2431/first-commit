@@ -25,6 +25,7 @@ const suggestions = [
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
     const { messagesBySession, isTyping, sendMessage, setActiveSession, isChatOpen, setChatOpen } = useChatStore();
+    const { isOpen: isSidebarOpen } = useSidebarStore();
     const { addSession, replaceSessionId } = useSessionStore();
     const navigate = useNavigate();
     const chatEndRef = useRef<HTMLDivElement>(null);
@@ -168,7 +169,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                 {isChatOpen && (
                     <motion.div
                         initial={{ width: 0, opacity: 0, x: 50 }}
-                        animate={{ width: 380, opacity: 1, x: 0 }}
+                        animate={{
+                            width: !isSidebarOpen ? '33.33%' : 380,
+                            opacity: 1,
+                            x: 0
+                        }}
                         exit={{ width: 0, opacity: 0, x: 50 }}
                         transition={{ duration: 0.5, type: 'spring', damping: 25, stiffness: 200 }}
                         className="h-full border-l border-gray-200 bg-white/95 backdrop-blur-xl flex flex-col flex-shrink-0 relative z-30 shadow-[-20px_0_40px_rgba(0,0,0,0.05)]"
@@ -178,7 +183,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
                         {/* Chat Messages */}
                         <div
                             ref={messagesContainerRef}
-                            className="flex-1 px-5 pb-6 pt-0 overflow-y-auto scroll-smooth custom-scrollbar relative"
+                            className="flex-1 px-5 pb-6 pt-8 overflow-y-auto scroll-smooth custom-scrollbar relative"
                         >
                             <AnimatePresence mode="wait">
                                 {!hasMessages ? (
