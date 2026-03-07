@@ -1,18 +1,56 @@
-# Agentic Decision Intelligence Platform
+# Nexus Intelligence
 
-An **"Always-On" AI Copilot** for Indian D2C and MSME retail (₹10–100 Cr ARR). Detects anomalies, diagnoses root causes with AI, and recommends actions with clear ownership.
+**Agentic Decision Intelligence Platform** — An **"Always-On" AI Copilot** for **Indian D2C and MSME retail** (₹10–100 Cr ARR). It moves monitoring from passive dashboards to **proactive, agentic action** with clear ownership — detecting anomalies early, diagnosing root causes with evidence, and recommending **who** should do **what** to fix it.
 
 ---
 
-## What it does
+## Use case
+
+### Who it’s for
+
+**Persona:** Ops / Growth lead at an Indian D2C brand (Shopify, marketplaces, WMS/ERP, logistics). Daily firefighting: stockouts, demand spikes, delivery issues, returns.
+
+**Need:** “What to do next” faster than analytics dashboards — **detect early**, **diagnose with evidence**, **recommend actions** with impact and owner.
+
+### What problem it solves
+
+Most BI tools show *what* happened. This platform answers *why* it happened and **who** needs to do **what** to fix it. Output is **owned actions**, not just charts.
+
+**MVP focus:** **Stockout events leading to revenue drops** — full flow from detect → diagnose → recommend.
+
+---
+
+## Proactive nature
+
+The platform is **proactive**, not reactive:
+
+- **Continuous monitoring** — Revenue (WoW/DoD), SKU stockouts, conversion, and operations are monitored in near real time.
+- **Early alerts** — Anomalies are surfaced with severity and status **before** they become critical, so teams can act in time.
+- **Always-on** — No need to open dashboards; the system detects issues and can push alerts and recommended actions to the right people.
+- **Action-first** — Every alert is tied to hypotheses, root causes, and suggested next steps with priority and ownership.
+
+---
+
+## End-to-end flow (decision latency reduction)
 
 | Step | Description |
 |------|-------------|
-| **Detect** | Anomalies in revenue (WoW/DoD) and SKU stockouts |
-| **Diagnose** | Agentic root cause analysis (hypotheses → test → rank) |
-| **Recommend** | Actionable tasks with priority and suggested owner |
+| **Detect** | Anomalies in revenue (WoW/DoD), SKU stockouts, conversion, operations; severity and status. |
+| **Diagnose** | Agentic root cause analysis: hypotheses → test against data → rank root causes → confidence scores and **evidence chain** (auditability). |
+| **Recommend** | Actionable tasks with **priority**, **suggested/assigned owner**, and link to root cause; optional push to teams (e.g. email, task ID). |
 
-**MVP focus:** Stockout events leading to revenue drops.
+---
+
+## Platform architecture (6 layers)
+
+| Layer | Purpose |
+|-------|---------|
+| **1. Data intake** | Excel, CSV, marketplace exports; optional enterprise data warehouse. |
+| **2. Normalization & quality** | Schema mapping, validation, unified data model. |
+| **3. Anomaly detection** | Revenue, stockout, conversion, operations anomalies. |
+| **4. Agentic RCA core** | Hypotheses → test → rank root causes (RCAagent: LangGraph + Bedrock + AgentCore). |
+| **5. Action & orchestration** | Action types, priority, ownership, optional push to teams. |
+| **6. User interaction** | Dashboard, chat, real-time SSE. |
 
 ---
 
@@ -22,25 +60,9 @@ An **"Always-On" AI Copilot** for Indian D2C and MSME retail (₹10–100 Cr ARR
 |-------|------|
 | Frontend | React (Vite), TypeScript, shadcn/ui, Tremor, Zustand |
 | Backend | Node.js (Express), TypeScript, SSE |
-| AI | AWS Bedrock (Claude 3.5 Sonnet), Strands-Agents SDK |
-| Data | MongoDB, (optional) Google BigQuery |
+| AI / Agentic | AWS Bedrock (Claude), LangChain + LangGraph, Bedrock AgentCore |
+| Data | MongoDB, (optional) Google Bigquery |
 | Infra | AWS (App Runner, Cognito, CloudFront) |
-
----
-
-## 7-day prototype plan
-
-| Day | Focus | Outcome |
-|-----|--------|---------|
-| **Day 1** | Project setup & backend skeleton | Repo structure, DB, models, health check, frontend shell |
-| **Day 2** | Data intake | Upload Excel/CSV (and optional enterprise DW connection) → parse/sync → store; data source status |
-| **Day 3** | Normalization + anomaly detection | Unified schema; revenue & stockout anomalies; anomaly API |
-| **Day 4** | Agentic RCA core | Hypotheses (Bedrock) → test → root causes; audit trail |
-| **Day 5** | Actions + SSE | Actions from root causes; action API; real-time SSE |
-| **Day 6** | Frontend dashboard | Anomalies, issues, actions, KPI chart; live updates |
-| **Day 7** | Chat + polish | Chat for KPI/anomaly/SKU; E2E flow; README & docs |
-
-**Full task list:** [TASKS.md](./TASKS.md) — detailed checklist for each day (use it to track progress).
 
 ---
 
@@ -49,35 +71,50 @@ An **"Always-On" AI Copilot** for Indian D2C and MSME retail (₹10–100 Cr ARR
 ```
 first-commit/
 ├── README.md           ← You are here
-├── TASKS.md            ← 7-day task list (track progress here)
-├── design.md           ← Full design doc (layers, interfaces, properties)
+├── backend/            ← Express API, SSE, data & anomaly APIs
+├── frontend/           ← React dashboard, chat, real-time updates
+├── RCAagent/           ← Agentic RCA (LangGraph + Bedrock + AgentCore)
+├── design.md           ← Full design (layers, interfaces)
 ├── requirements.md     ← User stories & acceptance criteria
 └── docs/
-    ├── overview.md     ← Vision, stack, 6-layer architecture
+    ├── overview.md
     ├── architecture_technical.md
     └── agentic_reasoning.md
 ```
 
-*(Backend and frontend app code will live in `backend/` and `frontend/` or similar once created.)*
-
 ---
 
-## Quick start (after Day 1)
+## Quick start
 
 1. Copy `.env.example` to `.env` and set `MONGODB_URI`, AWS credentials, etc.
 2. **Backend:** `cd backend && npm install && npm run dev`
 3. **Frontend:** `cd frontend && npm install && npm run dev`
-4. Open dashboard and hit `/health` to confirm backend is up.
+4. Open the app and hit `/health` to confirm the backend is up.
+
+---
+
+## Future scope
+
+Planned extensions beyond the current MVP:
+
+| Area | Description |
+|------|-------------|
+| **WhatsApp integration** | Push proactive alerts, root-cause summaries, and recommended actions to Ops/Growth via WhatsApp; optional two-way interaction for quick responses and task updates. |
+| **Third-party API integration (data sources)** | Ingest from marketplaces (Amazon, Flipkart, etc.), WMS/ERP, logistics, and ads platforms via APIs for unified monitoring and RCA without manual file uploads. |
+| **Multilanguage** | UI, alerts, and recommendations in Hindi, regional languages, and English so teams can work in their preferred language. |
+| **Self-healing mechanism** | Automatic retries, data-quality checks, and pipeline recovery; detection of stale or failed jobs and corrective actions with minimal manual intervention. |
+| **Voice capabilities** | Voice input for queries and commands, and voice output for alerts and summaries, for hands-free use in warehouses and on the go. |
+
+These are on the phased roadmap and not part of the current MVP.
 
 ---
 
 ## Docs
 
 - [Overview & vision](docs/overview.md)
-- [Design (6 layers, interfaces, correctness)](design.md)
+- [Design (6 layers, interfaces)](design.md)
 - [Requirements](requirements.md)
 - [Agentic reasoning](docs/agentic_reasoning.md)
-- [7-day task list](TASKS.md)
 
 ---
 
