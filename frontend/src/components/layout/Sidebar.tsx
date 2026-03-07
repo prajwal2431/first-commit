@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
+import { useChatStore } from '@/stores/chatStore';
 import SidebarNav from './SidebarNav';
 import SessionHistory from './SessionHistory';
 import UserProfileCard from './UserProfileCard';
@@ -9,9 +10,11 @@ import { useNavigate } from 'react-router-dom';
 
 const Sidebar: React.FC = () => {
     const { isOpen, toggle, width } = useSidebarStore();
+    const { setChatOpen } = useChatStore();
     const navigate = useNavigate();
 
     const handleNewChat = () => {
+        setChatOpen(true);
         navigate('/dashboard/intelligence');
     };
 

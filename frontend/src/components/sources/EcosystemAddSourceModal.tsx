@@ -60,7 +60,6 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [sheetsUrl, setSheetsUrl] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
-    const [sheetsUrl, setSheetsUrl] = useState('');
 
     // Reset selected platform when domain changes to avoid mismatches
     useEffect(() => {

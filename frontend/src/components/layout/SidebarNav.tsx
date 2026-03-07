@@ -2,11 +2,13 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { MessageSquare, Network } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
+import { useChatStore } from '@/stores/chatStore';
 import { cn } from '@/lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 
 const SidebarNav: React.FC = () => {
     const { isOpen } = useSidebarStore();
+    const { setChatOpen } = useChatStore();
 
     const navItems = [
         { to: '/dashboard/sources', label: 'Data Sources', icon: Network },
@@ -22,6 +24,13 @@ const SidebarNav: React.FC = () => {
                 <NavLink
                     key={item.to}
                     to={item.to}
+                    onClick={() => {
+                        if (item.to === '/dashboard/sources') {
+                            setChatOpen(false);
+                        } else if (item.to === '/dashboard/intelligence') {
+                            setChatOpen(true);
+                        }
+                    }}
                     className={({ isActive }) => cn(
                         "w-full flex items-center gap-3 p-2 transition-all text-sm font-medium",
                         isActive

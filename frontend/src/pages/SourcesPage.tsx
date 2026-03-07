@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Anchor, Plus, Network, ShoppingCart, Box, Instagram, Truck, Database } from 'lucide-react';
 import { useSourcesStore } from '@/stores/sourcesStore';
+import { useChatStore } from '@/stores/chatStore';
 import GridCard from '@/components/ui/GridCard';
 import Tag from '@/components/ui/Tag';
 import EcosystemAddSourceModal from '@/components/sources/EcosystemAddSourceModal';
@@ -23,11 +24,13 @@ const getDomainIcon = (label: string = '', domain: string = '') => {
 
 const SourcesPage: React.FC = () => {
     const { sources, fetchSources } = useSourcesStore();
+    const { setChatOpen } = useChatStore();
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
     useEffect(() => {
         fetchSources();
-    }, [fetchSources]);
+        setChatOpen(false);
+    }, [fetchSources, setChatOpen]);
 
     return (
         <motion.div

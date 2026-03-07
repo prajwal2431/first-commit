@@ -4,6 +4,7 @@ import { MoreHorizontal, Edit2, Trash2 } from 'lucide-react';
 import { useSidebarStore } from '@/stores/sidebarStore';
 import { cn } from '@/lib/utils';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useChatStore } from '@/stores/chatStore';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -18,6 +19,7 @@ const SessionHistory: React.FC = () => {
         renameSession,
         fetchSessions
     } = useSessionStore();
+    const { setChatOpen } = useChatStore();
 
     const [openMenuId, setOpenMenuId] = useState<string | null>(null);
     const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -84,6 +86,7 @@ const SessionHistory: React.FC = () => {
     };
 
     const handleSessionClick = (id: string) => {
+        setChatOpen(true);
         setActiveSession(id);
         navigate(`/dashboard/intelligence/${id}`);
     };

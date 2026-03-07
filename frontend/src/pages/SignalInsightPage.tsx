@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { request } from '@/services/api/client';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useChatStore } from '@/stores/chatStore';
 
 interface DataPoint {
     label: string;
@@ -76,6 +77,11 @@ const SignalInsightPage: React.FC = () => {
     const [isSending, setIsSending] = useState(false);
     const [sendResult, setSendResult] = useState<{ success: boolean; message: string } | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const { setChatOpen } = useChatStore();
+
+    useEffect(() => {
+        setChatOpen(false);
+    }, [setChatOpen]);
 
     useEffect(() => {
         fetchSettings();
