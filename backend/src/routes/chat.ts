@@ -95,7 +95,11 @@ router.post('/message', async (req: Request, res: Response) => {
     }
 
     if (!responseText) {
-      if (isAnalysisQuery(lowerMsg)) {
+      const suggestedFallback = await handleSuggestedQuestionFallback(orgId, lowerMsg);
+      if (suggestedFallback) {
+        responseText = suggestedFallback;
+        responseType = 'analysis';
+      } else if (isAnalysisQuery(lowerMsg)) {
         const result = await runFullAnalysis(String(session._id), orgId);
         responseText = generateChatResponse(message, result);
         responseType = 'analysis';
@@ -262,6 +266,171 @@ async function handleDataQuery(orgId: string, msg: string): Promise<string> {
   }
 
   return 'I can answer questions about revenue, inventory, returns, and more. Try asking something specific like "What is our return rate?" or "Which SKUs are out of stock?"';
+}
+
+async function handleSuggestedQuestionFallback(orgId: string, msg: string): Promise<string | null> {
+  if (msg.includes('revenue dropping')) {
+    const daily = await RetailRecord.aggregate([
+      { $match: { organizationId: orgId } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          revenue: { $sum: '$revenue' },
+          traffic: { $sum: '$traffic' },
+          units: { $sum: '$units' },
+        },
+      },
+      { $sort: { _id: -1 } },
+      { $limit: 14 },
+    ]);
+
+    if (daily.length < 6) return null;
+
+    const latestWeek = daily.slice(0, 7);
+    const prevWeek = daily.slice(7, 14);
+    const latestRev = latestWeek.reduce((sum: number, d: any) => sum + (d.revenue ?? 0), 0);
+    const prevRev = prevWeek.reduce((sum: number, d: any) => sum + (d.revenue ?? 0), 0);
+    const latestTraffic = latestWeek.reduce((sum: number, d: any) => sum + (d.traffic ?? 0), 0);
+    const prevTraffic = prevWeek.reduce((sum: number, d: any) => sum + (d.traffic ?? 0), 0);
+    const latestUnits = latestWeek.reduce((sum: number, d: any) => sum + (d.units ?? 0), 0);
+    const prevUnits = prevWeek.reduce((sum: number, d: any) => sum + (d.units ?? 0), 0);
+
+    const revDropPct = percentChange(latestRev, prevRev);
+    const trafficDeltaPct = percentChange(latestTraffic, prevTraffic);
+    const unitsDeltaPct = percentChange(latestUnits, prevUnits);
+    const likelyReason =
+      trafficDeltaPct >= 0 && unitsDeltaPct < 0
+        ? 'traffic is stable, but conversion or checkout performance looks weaker'
+        : trafficDeltaPct < 0
+          ? 'top-funnel demand is softer, which is pulling total sales down'
+          : 'both demand and order volume are down versus last week';
+
+    return [
+      `I reviewed the latest 14 days of retail data.`,
+      '',
+      `- Revenue change vs previous 7 days: **${formatSignedPercent(revDropPct)}**`,
+      `- Traffic change: **${formatSignedPercent(trafficDeltaPct)}**`,
+      `- Units sold change: **${formatSignedPercent(unitsDeltaPct)}**`,
+      '',
+      `Most likely driver: ${likelyReason}.`,
+      `If you want, I can break this down by SKU to isolate the biggest contributors.`,
+    ].join('\n');
+  }
+
+  if (msg.includes('stockout risk') || msg.includes('stockout')) {
+    const latestInventory = await InventoryRecord.aggregate([
+      { $match: { organizationId: orgId } },
+      { $sort: { date: -1 } },
+      {
+        $group: {
+          _id: { sku: '$sku', location: '$location' },
+          available_qty: { $first: '$available_qty' },
+        },
+      },
+      { $sort: { available_qty: 1 } },
+      { $limit: 15 },
+    ]);
+
+    if (latestInventory.length === 0) return null;
+
+    const outOfStock = latestInventory.filter((r: any) => r.available_qty <= 0);
+    const lowStock = latestInventory.filter((r: any) => r.available_qty > 0 && r.available_qty <= 20).slice(0, 5);
+
+    return [
+      `Here is the current stockout risk snapshot from your latest inventory records:`,
+      '',
+      `- Out of stock: **${outOfStock.length}** SKU-locations`,
+      `- Low stock (<=20 units): **${lowStock.length}** high-risk SKU-locations`,
+      '',
+      ...outOfStock.slice(0, 5).map((r: any) => `- OOS: ${r._id.sku} at ${r._id.location}`),
+      ...lowStock.map((r: any) => `- Low: ${r._id.sku} at ${r._id.location} (${r.available_qty} units)`),
+      '',
+      `I can also estimate revenue exposure for these SKUs if you want the impact view.`,
+    ].join('\n');
+  }
+
+  if (msg.includes('trending products this month') || (msg.includes('trending') && msg.includes('product'))) {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthSoFar = await RetailRecord.aggregate([
+      { $match: { organizationId: orgId, date: { $gte: monthStart } } },
+      {
+        $group: {
+          _id: '$sku',
+          revenue: { $sum: '$revenue' },
+          units: { $sum: '$units' },
+          traffic: { $sum: '$traffic' },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: 5 },
+    ]);
+
+    if (monthSoFar.length === 0) return null;
+
+    return [
+      `Top trending products this month (ranked by revenue):`,
+      '',
+      ...monthSoFar.map((r: any, idx: number) =>
+        `${idx + 1}. ${r._id}: ₹${(r.revenue / 1000).toFixed(1)}K revenue, ${r.units} units, ${(r.traffic ?? 0).toLocaleString()} traffic`
+      ),
+      '',
+      `If helpful, I can compare these with last month to show true momentum vs base popularity.`,
+    ].join('\n');
+  }
+
+  if (
+    msg.includes('actions to boost sales')
+    || (msg.includes('boost') && msg.includes('sales'))
+    || (msg.includes('actions') && msg.includes('sales'))
+  ) {
+    const perf = await RetailRecord.aggregate([
+      { $match: { organizationId: orgId } },
+      {
+        $group: {
+          _id: null,
+          traffic: { $sum: '$traffic' },
+          units: { $sum: '$units' },
+          returns: { $sum: '$returns' },
+          revenue: { $sum: '$revenue' },
+        },
+      },
+    ]);
+
+    if (perf.length === 0) return null;
+
+    const row = perf[0] as { traffic: number; units: number; returns: number; revenue: number };
+    const conversion = row.traffic > 0 ? (row.units / row.traffic) * 100 : 0;
+    const returnRate = row.units > 0 ? (row.returns / row.units) * 100 : 0;
+    const aov = row.units > 0 ? row.revenue / row.units : 0;
+
+    const actions: string[] = [];
+    if (conversion < 2) actions.push('Improve conversion on top landing/product pages (traffic is not translating into orders).');
+    if (returnRate > 7) actions.push('Reduce returns via tighter SKU-level quality checks and clearer PDP sizing/fit information.');
+    if (aov < 1000) actions.push('Increase AOV with bundles or threshold-based cart offers on high-traffic SKUs.');
+    if (actions.length === 0) actions.push('Scale high-performing SKUs and regions with focused spend while keeping current conversion guardrails.');
+
+    return [
+      `Based on current data, these are the highest-impact sales actions:`,
+      '',
+      `- Conversion: **${conversion.toFixed(2)}%**`,
+      `- Return rate: **${returnRate.toFixed(2)}%**`,
+      `- Avg order value proxy: **₹${aov.toFixed(0)}**`,
+      '',
+      ...actions.map((a) => `- ${a}`),
+    ].join('\n');
+  }
+
+  return null;
+}
+
+function percentChange(current: number, baseline: number): number {
+  if (baseline === 0) return current === 0 ? 0 : 100;
+  return ((current - baseline) / baseline) * 100;
+}
+
+function formatSignedPercent(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
 }
 
 export default router;
