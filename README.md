@@ -1,5 +1,7 @@
 # Nexus Intelligence
 
+![Intelligence Engine Diagnostic Chat — Real-time Pulse dashboard with live KPIs, revenue trend, live signals, and AI root-cause diagnostics.](assets/dashboard-diagnostic-chat.png)
+
 **Agentic Decision Intelligence Platform** — An **"Always-On" AI Copilot** for **Indian D2C and MSME retail** (₹10–100 Cr ARR). It moves monitoring from passive dashboards to **proactive, agentic action** with clear ownership — detecting anomalies early, diagnosing root causes with evidence, and recommending **who** should do **what** to fix it.
 
 ---
