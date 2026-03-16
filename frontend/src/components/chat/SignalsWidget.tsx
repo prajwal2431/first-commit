@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, Shield, ArrowRight } from 'lucide-react';
+import { ChevronDown, Shield, ArrowRight, Activity } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,18 +12,22 @@ const SignalsWidget: React.FC = () => {
 
     if (!hasData || liveSignals.length === 0) return (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 bg-transparent transition-all group relative overflow-hidden">
-            <p className="text-xs font-mono text-gray-400 tracking-widest font-bold uppercase z-10">SIGNALS: SCANNING...</p>
-            <motion.div
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="w-full max-w-[200px] h-0.5 bg-gray-100 mt-4 overflow-hidden z-10"
-            >
-                <motion.div
-                    animate={{ x: [-200, 200] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                    className="w-16 h-full bg-violet-400"
-                />
-            </motion.div>
+            <div className="flex flex-col items-center justify-center text-center max-w-sm z-10">
+                <div className="p-3 rounded-none bg-gray-100 text-gray-500 mb-4">
+                    <Activity size={28} strokeWidth={1.5} />
+                </div>
+                <p className="text-sm font-sans font-bold text-gray-800 mb-1">Connect data sources</p>
+                <p className="text-xs font-mono text-gray-500 mb-5 leading-relaxed">
+                    Ingest data to get live signals and anomaly alerts. Signals appear when we detect issues in your revenue or operations.
+                </p>
+                <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/sources')}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-black text-white font-mono text-xs font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors"
+                >
+                    Go to Sources <ArrowRight size={12} />
+                </button>
+            </div>
         </div>
     );
 

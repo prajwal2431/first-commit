@@ -1,14 +1,31 @@
 import React from 'react';
-import { AlertCircle, TrendingDown, Package, Truck, BarChart3, TrendingUp } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, TrendingDown, Package, Truck, BarChart3, TrendingUp, Database, ArrowRight } from 'lucide-react';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 
 const RevenueAtRiskWidget: React.FC = () => {
+    const navigate = useNavigate();
     const { kpiSummary, revenueAtRiskSeries, hasData } = useDashboardStore();
 
     if (!hasData || !kpiSummary) return (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 bg-transparent">
-            <p className="text-xs font-mono text-gray-400 font-bold tracking-widest uppercase">Analyzing Revenue Intel...</p>
+            <div className="flex flex-col items-center justify-center text-center max-w-sm">
+                <div className="p-3 rounded-none bg-gray-100 text-gray-500 mb-4">
+                    <Database size={28} strokeWidth={1.5} />
+                </div>
+                <p className="text-sm font-sans font-bold text-gray-800 mb-1">Connect data sources</p>
+                <p className="text-xs font-mono text-gray-500 mb-5 leading-relaxed">
+                    Connect your sales and traffic data to see revenue at risk and insights based on ingested data.
+                </p>
+                <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/sources')}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-black text-white font-mono text-xs font-bold tracking-widest uppercase hover:bg-gray-800 transition-colors"
+                >
+                    Go to Sources <ArrowRight size={12} />
+                </button>
+            </div>
         </div>
     );
 
