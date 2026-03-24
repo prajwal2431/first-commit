@@ -31,9 +31,9 @@ const AnalysisStep: React.FC<AnalysisStepProps> = ({ step, status, label }) => {
                     {label}
                 </p>
                 {isProcessing && (
-                    <div className="w-full bg-gray-100 h-0.5 mt-2 overflow-hidden">
+                    <div className="relative w-full bg-gray-100 h-0.5 mt-2 overflow-hidden">
                         <motion.div
-                            className="h-full bg-orange-400"
+                            className="absolute left-0 top-0 bottom-0 h-full bg-orange-400"
                             initial={{ width: "0%" }}
                             animate={{ width: "100%" }}
                             transition={{ duration: 1.5, repeat: Infinity }}

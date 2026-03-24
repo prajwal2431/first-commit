@@ -85,7 +85,13 @@ const EcosystemAddSourceModal: React.FC<EcosystemAddSourceModalProps> = ({ isOpe
         setIsProcessing(true);
         try {
             if (ingestionMode === 'upload' && selectedFile) {
-                await uploadSource(selectedFile, connectorLabel.toLowerCase());
+                const uploadDataType =
+                    canonicalDomain === 'Marketing & Traffic'
+                        ? 'traffic'
+                        : canonicalDomain === 'Fulfillment'
+                          ? 'fulfilment'
+                          : 'auto';
+                await uploadSource(selectedFile, uploadDataType);
             } else {
                 connectSource({
                     name: connectorLabel,

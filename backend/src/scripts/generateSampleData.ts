@@ -1,10 +1,21 @@
 /**
- * Generates realistic D2C brand sample data with deliberate anomalies.
- * Run: npx ts-node src/scripts/generateSampleData.ts
+ * Generates ~6 months of D2C sample data (sales + traffic) with end-window anomalies
+ * so WoW monitors fire. Writes CSVs for Sources upload and/or inserts into MongoDB.
+ *
+ * Run (DB + CSV):  npx ts-node --transpile-only src/scripts/generateSampleData.ts
+ * CSV files only:  npx ts-node --transpile-only src/scripts/generateSampleData.ts --csv-only
+ *
+ * DB seed: uses TENANT_ID if set; otherwise seeds every registered tenant (so your login sees data).
  */
-import 'dotenv/config';
-import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+dotenv.config();
+
+import fs from 'fs';
 import { connectDb, disconnectDb } from '../config/db';
+import { Tenant } from '../models/Tenant';
 import { RetailRecord } from '../models/RetailRecord';
 import { OrderRecord } from '../models/OrderRecord';
 import { InventoryRecord } from '../models/InventoryRecord';
@@ -13,13 +24,22 @@ import { TrafficRecord } from '../models/TrafficRecord';
 import { DataSource } from '../models/DataSource';
 import { computeAllMonitors } from '../services/monitors/computeAll';
 
-const ORG_ID = process.env.TENANT_ID ?? 'prajwal-mind';
 const SOURCE_ID = 'sample-data';
+const CSV_ONLY = process.argv.includes('--csv-only');
+/** ~6 months of daily grain */
+const DAYS = 186;
 
 const SKUS = [
-  'STITCH-TEE-OVR', 'STITCH-COORD-SET', 'MICKEY-HOODIE',
-  'DISNEY-JOGGER', 'MARVEL-CAP', 'LOONEY-CROP',
-  'BARBIE-DRESS', 'HP-SWEAT', 'MINIONS-SHORT', 'POOH-TOTE',
+  'STITCH-TEE-OVR',
+  'STITCH-COORD-SET',
+  'MICKEY-HOODIE',
+  'DISNEY-JOGGER',
+  'MARVEL-CAP',
+  'LOONEY-CROP',
+  'BARBIE-DRESS',
+  'HP-SWEAT',
+  'MINIONS-SHORT',
+  'POOH-TOTE',
 ];
 
 const REGIONS = ['Delhi', 'Mumbai', 'Bangalore', 'Chennai', 'Kolkata', 'Hyderabad'];
@@ -27,29 +47,55 @@ const WAREHOUSES = ['Mumbai-HQ', 'Delhi-Hub', 'Bangalore-WH'];
 const CARRIERS = ['Delhivery', 'Bluedart', 'DTDC', 'Ecom Express'];
 const CHANNELS = ['Instagram', 'Meta Ads', 'Google Ads', 'Organic', 'Myntra'];
 
+function mulberry32(seed: number) {
+  return function raw() {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const rng = mulberry32(20250324);
+
 function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return Math.floor(rng() * (max - min + 1)) + min;
 }
 
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
+  return arr[Math.floor(rng() * arr.length)];
 }
 
-async function main() {
-  await connectDb();
-  console.log('Connected. Generating sample data...');
+function csvEscape(cell: string | number): string {
+  const s = String(cell);
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
 
-  await Promise.all([
-    RetailRecord.deleteMany({ sourceId: SOURCE_ID }),
-    OrderRecord.deleteMany({ sourceId: SOURCE_ID }),
-    InventoryRecord.deleteMany({ sourceId: SOURCE_ID }),
-    FulfilmentRecord.deleteMany({ sourceId: SOURCE_ID }),
-    TrafficRecord.deleteMany({ sourceId: SOURCE_ID }),
-  ]);
+function writeRetailCsv(rows: any[], outPath: string): void {
+  const lines = ['date,sku,revenue,units,traffic,inventory,returns'];
+  for (const r of rows) {
+    const d = new Date(r.date).toISOString().slice(0, 10);
+    lines.push(
+      [d, r.sku, r.revenue, r.units, r.traffic, r.inventory, r.returns].map(csvEscape).join(',')
+    );
+  }
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+}
 
-  const now = new Date();
-  const days = 45;
-  const startDate = new Date(now.getTime() - days * 86400000);
+function writeTrafficCsv(rows: any[], outPath: string): void {
+  const lines = ['date,channel,sessions,impressions,clicks,spend'];
+  for (const r of rows) {
+    const d = new Date(r.date).toISOString().slice(0, 10);
+    lines.push(
+      [d, r.channel, r.sessions, r.impressions, r.clicks, r.spend].map(csvEscape).join(',')
+    );
+  }
+  fs.writeFileSync(outPath, lines.join('\n'), 'utf-8');
+}
+
+function buildDataset(now: Date, organizationId: string) {
+  const startDate = new Date(now.getTime() - DAYS * 86400000);
 
   const retailRecords: any[] = [];
   const orderRecords: any[] = [];
@@ -59,14 +105,15 @@ async function main() {
 
   let orderCounter = 10000;
 
-  for (let d = 0; d < days; d++) {
+  for (let d = 0; d < DAYS; d++) {
     const date = new Date(startDate.getTime() + d * 86400000);
-    const dateStr = date.toISOString().slice(0, 10);
     const dayOfWeek = date.getDay();
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-    const isAnomalyPeriod = d >= 35 && d <= 40;
-    const isSpikeDay = d === 30 || d === 31;
+    const isAnomalyPeriod = d >= DAYS - 7;
+    const isSpikeDay = d === DAYS - 5 || d === DAYS - 6;
+
+    const ordersThisDay: any[] = [];
 
     for (const sku of SKUS) {
       let baseUnits = rand(5, 30);
@@ -96,7 +143,7 @@ async function main() {
 
       retailRecords.push({
         sourceId: SOURCE_ID,
-        organizationId: ORG_ID,
+        organizationId,
         date,
         sku,
         revenue: baseRevenue,
@@ -106,20 +153,22 @@ async function main() {
         returns,
       });
 
-      const numOrders = Math.max(1, Math.round(baseUnits / rand(1, 3)));
+      const numOrders = Math.min(3, Math.max(1, Math.round(baseUnits / rand(1, 3))));
       for (let o = 0; o < numOrders; o++) {
         const region = pick(REGIONS);
         const qty = Math.max(1, Math.round(baseUnits / numOrders));
-        orderRecords.push({
+        const ord = {
           sourceId: SOURCE_ID,
-          organizationId: ORG_ID,
+          organizationId,
           order_id: `ORD-${++orderCounter}`,
           sku,
           quantity: qty,
           revenue: qty * rand(400, 1200),
           date,
           region,
-        });
+        };
+        orderRecords.push(ord);
+        ordersThisDay.push(ord);
       }
 
       for (const wh of WAREHOUSES) {
@@ -129,7 +178,7 @@ async function main() {
         }
         inventoryRecords.push({
           sourceId: SOURCE_ID,
-          organizationId: ORG_ID,
+          organizationId,
           sku,
           location: wh,
           available_qty: invQty,
@@ -152,7 +201,7 @@ async function main() {
 
       trafficRecords.push({
         sourceId: SOURCE_ID,
-        organizationId: ORG_ID,
+        organizationId,
         date,
         channel,
         sku: '',
@@ -163,25 +212,22 @@ async function main() {
       });
     }
 
-    const ordersForDay = orderRecords.filter(
-      (o) => new Date(o.date).toISOString().slice(0, 10) === dateStr
-    );
-    for (const order of ordersForDay.slice(0, Math.min(ordersForDay.length, 20))) {
+    for (const order of ordersThisDay.slice(0, Math.min(ordersThisDay.length, 20))) {
       const dispatchDate = new Date(date.getTime() + rand(0, 2) * 86400000);
       const edd = new Date(dispatchDate.getTime() + rand(3, 5) * 86400000);
       const actualDeliveryOffset = rand(2, 7);
       const deliveryDate = new Date(dispatchDate.getTime() + actualDeliveryOffset * 86400000);
 
       let status: 'dispatched' | 'delivered' | 'returned' | 'cancelled' | 'rto' = 'delivered';
-      if (Math.random() < 0.03) status = 'cancelled';
-      else if (Math.random() < 0.05) status = 'rto';
+      if (rng() < 0.03) status = 'cancelled';
+      else if (rng() < 0.05) status = 'rto';
       else if (deliveryDate > now) status = 'dispatched';
 
       const isDelayedRegion = isAnomalyPeriod && order.region === 'Delhi';
 
       fulfilmentRecords.push({
         sourceId: SOURCE_ID,
-        organizationId: ORG_ID,
+        organizationId,
         order_id: order.order_id,
         sku: order.sku,
         dispatch_date: dispatchDate,
@@ -196,34 +242,104 @@ async function main() {
     }
   }
 
-  console.log(`Inserting: ${retailRecords.length} retail, ${orderRecords.length} orders, ${inventoryRecords.length} inventory, ${fulfilmentRecords.length} fulfilment, ${trafficRecords.length} traffic`);
+  return {
+    retailRecords,
+    orderRecords,
+    inventoryRecords,
+    fulfilmentRecords,
+    trafficRecords,
+  };
+}
 
-  await Promise.all([
-    RetailRecord.insertMany(retailRecords),
-    OrderRecord.insertMany(orderRecords),
-    InventoryRecord.insertMany(inventoryRecords),
-    FulfilmentRecord.insertMany(fulfilmentRecords),
-    TrafficRecord.insertMany(trafficRecords),
-  ]);
+function remapOrg<T extends { organizationId: string }>(rows: T[], organizationId: string): T[] {
+  return rows.map((r) => ({ ...r, organizationId }));
+}
 
-  await DataSource.findOneAndUpdate(
-    { fileName: 'sample-data-generator', organizationId: ORG_ID },
-    {
-      userId: 'system',
-      organizationId: ORG_ID,
-      fileName: 'sample-data-generator',
-      fileType: 'csv',
-      status: 'completed',
-      recordCount: retailRecords.length + orderRecords.length + inventoryRecords.length,
-      uploadedAt: new Date(),
-    },
-    { upsert: true }
-  );
+async function resolveOrgIds(): Promise<string[]> {
+  const explicit = process.env.TENANT_ID?.trim();
+  if (explicit) return [explicit];
+  const ids = (await Tenant.distinct('tenantId')) as string[];
+  return ids.length > 0 ? [...ids].sort() : ['default'];
+}
 
-  console.log('Computing monitors...');
-  await computeAllMonitors(ORG_ID);
+async function main() {
+  const now = new Date();
 
-  console.log('Done! Sample data generated successfully.');
+  if (CSV_ONLY) {
+    const template = buildDataset(now, 'default');
+    const sampleDir = path.join(process.cwd(), 'sample-data');
+    if (!fs.existsSync(sampleDir)) fs.mkdirSync(sampleDir, { recursive: true });
+    const retailCsvPath = path.join(sampleDir, 'sample-retail-sales-6mo.csv');
+    const trafficCsvPath = path.join(sampleDir, 'sample-traffic-6mo.csv');
+    writeRetailCsv(template.retailRecords, retailCsvPath);
+    writeTrafficCsv(template.trafficRecords, trafficCsvPath);
+    console.log(`Wrote ${retailCsvPath}`);
+    console.log(`Wrote ${trafficCsvPath}`);
+    console.log(
+      'CSV-only mode: upload via Sources — Sales: auto; Marketing & Traffic: traffic.'
+    );
+    process.exit(0);
+  }
+
+  await connectDb();
+  const orgIds = await resolveOrgIds();
+  console.log(`Seeding organizations: ${orgIds.join(', ')}`);
+
+  const template = buildDataset(now, orgIds[0]);
+
+  const sampleDir = path.join(process.cwd(), 'sample-data');
+  if (!fs.existsSync(sampleDir)) fs.mkdirSync(sampleDir, { recursive: true });
+  writeRetailCsv(template.retailRecords, path.join(sampleDir, 'sample-retail-sales-6mo.csv'));
+  writeTrafficCsv(template.trafficRecords, path.join(sampleDir, 'sample-traffic-6mo.csv'));
+  console.log(`Updated ${path.join(sampleDir, 'sample-retail-sales-6mo.csv')}`);
+
+  for (const orgId of orgIds) {
+    const retailRecords = remapOrg(template.retailRecords, orgId);
+    const orderRecords = remapOrg(template.orderRecords, orgId);
+    const inventoryRecords = remapOrg(template.inventoryRecords, orgId);
+    const fulfilmentRecords = remapOrg(template.fulfilmentRecords, orgId);
+    const trafficRecords = remapOrg(template.trafficRecords, orgId);
+
+    console.log(`[${orgId}] Clearing prior sample-data rows...`);
+    await Promise.all([
+      RetailRecord.deleteMany({ sourceId: SOURCE_ID, organizationId: orgId }),
+      OrderRecord.deleteMany({ sourceId: SOURCE_ID, organizationId: orgId }),
+      InventoryRecord.deleteMany({ sourceId: SOURCE_ID, organizationId: orgId }),
+      FulfilmentRecord.deleteMany({ sourceId: SOURCE_ID, organizationId: orgId }),
+      TrafficRecord.deleteMany({ sourceId: SOURCE_ID, organizationId: orgId }),
+    ]);
+
+    console.log(
+      `[${orgId}] Inserting: ${retailRecords.length} retail, ${orderRecords.length} orders, ${inventoryRecords.length} inventory, ${fulfilmentRecords.length} fulfilment, ${trafficRecords.length} traffic`
+    );
+
+    await Promise.all([
+      RetailRecord.insertMany(retailRecords),
+      OrderRecord.insertMany(orderRecords),
+      InventoryRecord.insertMany(inventoryRecords),
+      FulfilmentRecord.insertMany(fulfilmentRecords),
+      TrafficRecord.insertMany(trafficRecords),
+    ]);
+
+    await DataSource.findOneAndUpdate(
+      { fileName: 'sample-data-generator', organizationId: orgId },
+      {
+        userId: 'system',
+        organizationId: orgId,
+        fileName: 'sample-data-generator',
+        fileType: 'csv',
+        status: 'completed',
+        recordCount: retailRecords.length + orderRecords.length + inventoryRecords.length,
+        uploadedAt: new Date(),
+      },
+      { upsert: true }
+    );
+
+    console.log(`[${orgId}] Computing monitors...`);
+    await computeAllMonitors(orgId);
+  }
+
+  console.log('Done. Refresh the app; dashboard and chat should show KPIs and signals.');
   await disconnectDb();
   process.exit(0);
 }

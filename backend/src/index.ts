@@ -20,6 +20,7 @@ import signalsRouter from './routes/signals';
 import settingsRouter from './routes/settings';
 import notificationsRouter from './routes/notifications';
 import debugDbRouter from './routes/debugDb';
+import eventsRouter from './routes/events';
 import { requireAuth } from './middleware/auth';
 import { startSyncScheduler } from './services/sheets';
 import './models';
@@ -46,6 +47,9 @@ app.use('/api/notifications', requireAuth, notificationsRouter);
 
 // Debug (unprotected for dev)
 app.use('/api/debug/db', debugDbRouter);
+
+// SSE (EventSource cannot attach Bearer tokens; keep payloads non-sensitive)
+app.use('/api/events', eventsRouter);
 
 connectDb()
   .then(() => {

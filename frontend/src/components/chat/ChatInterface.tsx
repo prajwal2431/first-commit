@@ -159,14 +159,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ sessionId }) => {
 
                 {/* Dashboard Content */}
                 <div className="flex-1 overflow-hidden w-full custom-scrollbar flex flex-col p-0">
-                    <div className="flex-1 min-w-0 flex flex-col lg:flex-row bg-transparent rounded-none overflow-hidden">
-                        {/* Left Part: Revenue */}
-                        <div className="flex-[6] min-w-0 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-6 duration-700 ease-out bg-transparent overflow-hidden">
+                    <div className="flex-1 min-h-0 min-w-0 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden bg-transparent">
+                        <div className="min-w-0 flex flex-col xl:flex-[6] xl:min-h-0 xl:overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-700 ease-out bg-transparent">
                             <RevenueAtRiskWidget />
                         </div>
-
-                        {/* Right Part: Signals */}
-                        <div className="flex-[4] min-w-0 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-6 duration-700 ease-out delay-150 bg-[#FAFAFA] overflow-hidden">
+                        <div className="min-w-0 flex flex-col xl:flex-[4] xl:min-h-0 xl:overflow-hidden animate-in fade-in slide-in-from-bottom-6 duration-700 ease-out delay-150 bg-[#FAFAFA] border-t border-gray-100/80 xl:border-t-0 xl:border-l xl:border-gray-100/80">
                             <SignalsWidget />
                         </div>
                     </div>

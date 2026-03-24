@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "test": "npm run build && node --test dist/**/*.test.js"
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "seed:sample": "ts-node --transpile-only src/scripts/generateSampleData.ts",
+    "seed:sample:csv": "ts-node --transpile-only src/scripts/generateSampleData.ts --csv-only"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "^3.744.0",
